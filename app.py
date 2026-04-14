@@ -1,4 +1,6 @@
+
 import streamlit as st
+st.write("Loading model...")
 import pickle
 import pandas as pd
 
