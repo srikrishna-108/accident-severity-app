@@ -1,23 +1,26 @@
 import streamlit as st
-import pickle
 import numpy as np
+import xgboost as xgb
+import matplotlib.pyplot as plt
 
 # ---------------- PAGE CONFIG ---------------- #
-st.set_page_config(page_title="Accident Severity Predictor", layout="centered")
+st.set_page_config(page_title="Accident Severity AI", layout="wide")
 
 # ---------------- HEADER ---------------- #
-st.markdown("<h1 style='text-align: center;'>🚧 Accident Severity Predictor</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>AI-powered road safety analysis tool</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>🚧 Accident Severity AI</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Smart Road Risk Analysis & Decision System</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ---------------- LOAD MODEL ---------------- #
 @st.cache_resource
 def load_model():
-    return pickle.load(open("xgb_model.pkl", "rb"))
+    model = xgb.XGBClassifier()
+    model.load_model("xgb_model.json")
+    return model
 
 model = load_model()
 
-# ---------------- MANUAL ENCODING ---------------- #
+# ---------------- ENCODING ---------------- #
 collision_map = {"Head-on": 0, "Rear-end": 1, "Side": 2}
 speed_map = {"Low": 0, "Medium": 1, "High": 2}
 geometry_map = {"Straight": 0, "Curve": 1}
@@ -29,44 +32,27 @@ time_map = {"Day": 0, "Night": 1}
 traffic_map = {"Low": 0, "Medium": 1, "High": 2}
 lighting_map = {"Good": 0, "Poor": 1}
 
+feature_names = [
+    "Collision", "Speed", "Geometry", "Lanes", "Gradient",
+    "Weather", "Vehicle", "Time", "Traffic", "Lighting"
+]
+
 # ---------------- INPUT UI ---------------- #
-st.subheader("📋 Input Road Conditions")
+st.sidebar.header("📋 Input Parameters")
 
-col1, col2 = st.columns(2)
+collision = st.sidebar.selectbox("Collision Type", collision_map.keys())
+speed = st.sidebar.selectbox("Speed", speed_map.keys())
+geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
+lanes = st.sidebar.selectbox("Lanes", lanes_map.keys())
+gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
+weather = st.sidebar.selectbox("Weather", weather_map.keys())
+vehicle = st.sidebar.selectbox("Vehicle Type", vehicle_map.keys())
+time = st.sidebar.selectbox("Time", time_map.keys())
+traffic = st.sidebar.selectbox("Traffic", traffic_map.keys())
+lighting = st.sidebar.selectbox("Lighting", lighting_map.keys())
 
-with col1:
-    collision = st.selectbox("Collision Type", collision_map.keys())
-    speed = st.selectbox("Speed Category", speed_map.keys())
-    geometry = st.selectbox("Road Geometry", geometry_map.keys())
-    lanes = st.selectbox("Number of Lanes", lanes_map.keys())
-    gradient = st.selectbox("Gradient", gradient_map.keys())
-
-with col2:
-    weather = st.selectbox("Weather", weather_map.keys())
-    vehicle = st.selectbox("Vehicle Type", vehicle_map.keys())
-    time = st.selectbox("Time of Day", time_map.keys())
-    traffic = st.selectbox("Traffic Volume", traffic_map.keys())
-    lighting = st.selectbox("Lighting Condition", lighting_map.keys())
-
-st.markdown("---")
-
-# ---------------- RISK SCORE FUNCTION ---------------- #
-def calculate_risk():
-    score = 0
-    
-    if speed == "High": score += 3
-    if collision == "Head-on": score += 3
-    if weather != "Clear": score += 2
-    if lighting == "Poor": score += 2
-    if traffic == "High": score += 2
-    if gradient == "Steep": score += 2
-    if geometry == "Curve": score += 2
-    if vehicle == "Heavy": score += 1
-    
-    return score
-
-# ---------------- PREDICTION ---------------- #
-if st.button("🚀 Predict Severity"):
+# ---------------- MAIN ---------------- #
+if st.sidebar.button("🚀 Predict"):
 
     input_data = np.array([[
         collision_map[collision],
@@ -81,7 +67,8 @@ if st.button("🚀 Predict Severity"):
         lighting_map[lighting]
     ]])
 
-    prediction = model.predict(input_data)[0]
+    # ---------------- PREDICTION ---------------- #
+    pred = model.predict(input_data)[0]
 
     severity_map = {
         0: "Property Damage",
@@ -90,66 +77,75 @@ if st.button("🚀 Predict Severity"):
         3: "Fatal"
     }
 
-    result = severity_map[prediction]
+    result = severity_map[pred]
 
     # ---------------- RISK SCORE ---------------- #
-    risk_score = calculate_risk()
+    risk_score = sum([
+        3 if speed == "High" else 0,
+        3 if collision == "Head-on" else 0,
+        2 if weather != "Clear" else 0,
+        2 if lighting == "Poor" else 0,
+        2 if traffic == "High" else 0,
+        2 if gradient == "Steep" else 0,
+        2 if geometry == "Curve" else 0,
+        1 if vehicle == "Heavy" else 0
+    ])
 
-    st.subheader("📊 Results")
+    col1, col2 = st.columns(2)
 
-    # Risk Meter
-    st.progress(min(risk_score / 15, 1.0))
-    st.write(f"**Risk Score:** {risk_score}/15")
+    # ---------------- RESULT ---------------- #
+    with col1:
+        st.subheader("🚨 Prediction Result")
 
-    # ---------------- SEVERITY OUTPUT ---------------- #
+        if result == "Fatal":
+            st.error(result)
+        elif result == "Grievous Injury":
+            st.warning(result)
+        elif result == "Minor Injury":
+            st.info(result)
+        else:
+            st.success(result)
+
+        st.progress(min(risk_score / 15, 1.0))
+        st.write(f"Risk Score: {risk_score}/15")
+
+    # ---------------- FEATURE IMPORTANCE ---------------- #
+    with col2:
+        st.subheader("📊 Feature Importance")
+
+        importance = model.feature_importances_
+
+        fig, ax = plt.subplots()
+        ax.barh(feature_names, importance)
+        ax.set_title("Feature Importance")
+        st.pyplot(fig)
+
+    # ---------------- SHAP-LIKE EXPLANATION ---------------- #
+    st.markdown("---")
+    st.subheader("🧠 Explanation")
+
+    top_feature_index = np.argmax(model.feature_importances_)
+    st.write(f"Most influential factor: **{feature_names[top_feature_index]}**")
+
+    # ---------------- RECOMMENDATIONS ---------------- #
+    st.markdown("---")
+    st.subheader("🚧 Recommendations")
+
     if result == "Fatal":
-        st.error(f"🚨 Severity: {result}")
-        st.markdown("### 🚧 Recommended Actions")
-        st.markdown("""
-        - Immediate road redesign  
-        - Speed enforcement (cameras, penalties)  
-        - Install crash barriers  
-        - Improve lighting & signage  
-        """)
+        st.write("- Immediate redesign")
+        st.write("- Install barriers")
+        st.write("- Speed enforcement")
 
     elif result == "Grievous Injury":
-        st.warning(f"⚠️ Severity: {result}")
-        st.markdown("### 🚧 Recommended Actions")
-        st.markdown("""
-        - Add warning signs  
-        - Improve road markings  
-        - Monitor traffic flow  
-        - Reduce speed limits  
-        """)
+        st.write("- Improve signage")
+        st.write("- Reduce speed limits")
 
     elif result == "Minor Injury":
-        st.info(f"ℹ️ Severity: {result}")
-        st.markdown("### 🚧 Recommended Actions")
-        st.markdown("""
-        - Routine inspection  
-        - Minor geometric improvements  
-        - Awareness measures  
-        """)
+        st.write("- Routine monitoring")
 
     else:
-        st.success(f"✅ Severity: {result}")
-        st.markdown("### 🚧 Recommended Actions")
-        st.markdown("""
-        - Maintain road conditions  
-        - Regular monitoring  
-        """)
-
-    # ---------------- INSIGHT BOX ---------------- #
-    st.markdown("---")
-    st.subheader("🧠 Insight")
-
-    if risk_score >= 10:
-        st.write("High-risk road segment detected. Immediate intervention required.")
-    elif risk_score >= 6:
-        st.write("Moderate risk. Preventive measures recommended.")
-    else:
-        st.write("Low-risk conditions. Maintain standards.")
+        st.write("- Maintain conditions")
 
 # ---------------- FOOTER ---------------- #
 st.markdown("---")
-st.markdown("<p style='text-align: center;'>Built for Road Safety Analysis 🚀</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>🚀 AI for Safer Roads</p>", unsafe_allow_html=True)
