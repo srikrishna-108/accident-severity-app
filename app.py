@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="Accident Severity AI", layout="wide")
 
 st.title("🚧 Accident Severity Predictor")
-st.markdown("Smart Road Risk & Severity Analysis")
+st.markdown("Smart Road Risk & Severity Analysis System")
 
 # ---------------- LOAD MODEL ---------------- #
 @st.cache_resource
@@ -15,7 +15,7 @@ def load_model():
 
 model = load_model()
 
-# ---------------- MAPS ---------------- #
+# ---------------- CATEGORY MAPS ---------------- #
 weather_map = {"Clear": 0, "Rainy": 1, "Foggy": 2}
 vehicle_map = {"Two-wheeler": 0, "Car": 1, "Truck": 2, "Bus": 3}
 collision_map = {"Rear-end": 0, "Side": 1, "Head-on": 2, "Pedestrian": 3}
@@ -27,28 +27,36 @@ traffic_map = {"Low": 0, "Medium": 1, "High": 2}
 geometry_map = {"Straight": 0, "Moderate Curve": 1, "Sharp Curve": 2}
 gradient_map = {"Flat": 0, "Moderate": 1, "Steep": 2}
 
+# ---------------- FEATURE ORDER (CRITICAL) ---------------- #
 feature_names = [
-    "Weather","Vehicle_Type","Collision_Type","Time_of_Day",
-    "Lighting","Speed_Category","Number_of_Lanes",
-    "Traffic_Volume","Road_Geometry","Gradient"
+    "Weather",
+    "Vehicle_Type",
+    "Collision_Type",
+    "Time_of_Day",
+    "Lighting",
+    "Speed_Category",
+    "Number_of_Lanes",
+    "Traffic_Volume",
+    "Road_Geometry",
+    "Gradient"
 ]
 
-# ---------------- INPUT ---------------- #
-st.sidebar.header("📋 Inputs")
+# ---------------- INPUT UI ---------------- #
+st.sidebar.header("📋 Road Conditions")
 
 weather = st.sidebar.selectbox("Weather", weather_map.keys())
-vehicle = st.sidebar.selectbox("Vehicle", vehicle_map.keys())
-collision = st.sidebar.selectbox("Collision", collision_map.keys())
-time = st.sidebar.selectbox("Time", time_map.keys())
+vehicle = st.sidebar.selectbox("Vehicle Type", vehicle_map.keys())
+collision = st.sidebar.selectbox("Collision Type", collision_map.keys())
+time = st.sidebar.selectbox("Time of Day", time_map.keys())
 lighting = st.sidebar.selectbox("Lighting", lighting_map.keys())
 speed = st.sidebar.selectbox("Speed", speed_map.keys())
-lanes = st.sidebar.selectbox("Lanes", lanes_map.keys())
-traffic = st.sidebar.selectbox("Traffic", traffic_map.keys())
-geometry = st.sidebar.selectbox("Geometry", geometry_map.keys())
+lanes = st.sidebar.selectbox("Number of Lanes", lanes_map.keys())
+traffic = st.sidebar.selectbox("Traffic Volume", traffic_map.keys())
+geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
 gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
 
-# ---------------- PREDICT ---------------- #
-if st.sidebar.button("🚀 Predict"):
+# ---------------- PREDICTION ---------------- #
+if st.sidebar.button("🚀 Predict Severity"):
 
     input_data = np.array([[
         weather_map[weather],
@@ -64,8 +72,17 @@ if st.sidebar.button("🚀 Predict"):
     ]])
 
     dmatrix = xgb.DMatrix(input_data, feature_names=feature_names)
-    probs = model.predict(dmatrix)
-    pred = int(np.argmax(probs))
+    probs = model.predict(dmatrix)[0]
+
+    # ---------------- SMART PREDICTION ---------------- #
+    if probs[3] >= 0.30:
+        pred = 3
+    elif probs[2] >= 0.40:
+        pred = 2
+    elif probs[1] >= 0.40:
+        pred = 1
+    else:
+        pred = 0
 
     severity_map = {
         0: "Property Damage",
@@ -76,7 +93,7 @@ if st.sidebar.button("🚀 Predict"):
 
     result = severity_map[pred]
 
-    # ---------------- RISK SCORE (FIXED) ---------------- #
+    # ---------------- RISK SCORE ---------------- #
     risk_score = 0
 
     if speed == "High": risk_score += 3
@@ -87,6 +104,9 @@ if st.sidebar.button("🚀 Predict"):
     if geometry == "Sharp Curve": risk_score += 2
     if gradient == "Steep": risk_score += 2
     if vehicle in ["Truck", "Bus"]: risk_score += 1
+
+    # Normalize to %
+    risk_percent = min(int((risk_score / 15) * 100), 100)
 
     # ---------------- OUTPUT ---------------- #
     col1, col2 = st.columns(2)
@@ -103,11 +123,11 @@ if st.sidebar.button("🚀 Predict"):
         else:
             st.success(result)
 
-        st.subheader("📊 Risk Score")
-        st.progress(min(risk_score/15,1.0))
-        st.write(f"{risk_score}/15")
+        st.subheader("📊 Risk Level")
+        st.progress(risk_percent / 100)
+        st.write(f"{risk_percent}%")
 
-    # ---------------- GRAPH (FIXED PROPERLY) ---------------- #
+    # ---------------- GRAPH ---------------- #
     with col2:
         st.subheader("📈 Input Impact (Proxy)")
 
@@ -115,10 +135,10 @@ if st.sidebar.button("🚀 Predict"):
 
         fig, ax = plt.subplots()
         ax.barh(feature_names, values)
-        ax.set_xlabel("Encoded Value (Relative Impact Proxy)")
+        ax.set_xlabel("Relative Input Encoding")
         st.pyplot(fig)
 
-    # ---------------- EXPLANATION (INPUT BASED) ---------------- #
+    # ---------------- EXPLANATION ---------------- #
     st.markdown("---")
     st.subheader("🧠 Why this prediction?")
 
@@ -134,7 +154,7 @@ if st.sidebar.button("🚀 Predict"):
     for r in reasons:
         st.write(f"- {r}")
 
-    # ---------------- SMART RECOMMENDATIONS ---------------- #
+    # ---------------- RECOMMENDATIONS ---------------- #
     st.markdown("---")
     st.subheader("🚧 Recommendations")
 
@@ -142,16 +162,16 @@ if st.sidebar.button("🚀 Predict"):
         st.write("- Enforce speed limits")
 
     if lighting == "Poor":
-        st.write("- Improve road lighting")
+        st.write("- Improve street lighting")
 
     if geometry == "Sharp Curve":
-        st.write("- Install warning signs & barriers")
+        st.write("- Install warning signs & crash barriers")
 
     if weather != "Clear":
-        st.write("- Add skid-resistant surface")
+        st.write("- Use skid-resistant road surfaces")
 
     if collision in ["Head-on", "Pedestrian"]:
-        st.write("- Introduce divider / pedestrian crossings")
+        st.write("- Add dividers / pedestrian crossings")
 
     if traffic == "High":
         st.write("- Optimize traffic control systems")
