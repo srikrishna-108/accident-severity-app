@@ -1,84 +1,155 @@
-
 import streamlit as st
-st.write("Loading model...")
 import pickle
-import pandas as pd
+import numpy as np
 
-# ---------------- LOAD MODEL + ENCODERS ---------------- #
-model = pickle.load(open("xgb_model.pkl", "rb"))
-encoders = pickle.load(open("encoders.pkl", "rb"))
-
+# ---------------- PAGE CONFIG ---------------- #
 st.set_page_config(page_title="Accident Severity Predictor", layout="centered")
 
-st.title("🚧 Road Accident Severity Predictor")
-st.markdown("Predict accident severity based on road and traffic conditions")
+# ---------------- HEADER ---------------- #
+st.markdown("<h1 style='text-align: center;'>🚧 Accident Severity Predictor</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>AI-powered road safety analysis tool</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-# ---------------- FEATURE ORDER (CRITICAL FIX) ---------------- #
-feature_order = [
-    "Weather",
-    "Vehicle_Type",
-    "Collision_Type",
-    "Time_of_Day",
-    "Lighting",
-    "Speed_Category",
-    "Number_of_Lanes",
-    "Traffic_Volume",
-    "Road_Geometry",
-    "Gradient"
-]
+# ---------------- LOAD MODEL ---------------- #
+@st.cache_resource
+def load_model():
+    return pickle.load(open("xgb_model.pkl", "rb"))
 
-# ---------------- INPUTS ---------------- #
-inputs = {}
+model = load_model()
 
-inputs["Collision_Type"] = st.selectbox("Collision Type", encoders['Collision_Type'].classes_)
-inputs["Road_Geometry"] = st.selectbox("Road Geometry", encoders['Road_Geometry'].classes_)
-inputs["Speed_Category"] = st.selectbox("Speed Category", encoders['Speed_Category'].classes_)
-inputs["Number_of_Lanes"] = st.selectbox("Number of Lanes", encoders['Number_of_Lanes'].classes_)
-inputs["Gradient"] = st.selectbox("Gradient", encoders['Gradient'].classes_)
-inputs["Weather"] = st.selectbox("Weather", encoders['Weather'].classes_)
-inputs["Vehicle_Type"] = st.selectbox("Vehicle Type", encoders['Vehicle_Type'].classes_)
-inputs["Time_of_Day"] = st.selectbox("Time of Day", encoders['Time_of_Day'].classes_)
-inputs["Traffic_Volume"] = st.selectbox("Traffic Volume", encoders['Traffic_Volume'].classes_)
-inputs["Lighting"] = st.selectbox("Lighting", encoders['Lighting'].classes_)
+# ---------------- MANUAL ENCODING ---------------- #
+collision_map = {"Head-on": 0, "Rear-end": 1, "Side": 2}
+speed_map = {"Low": 0, "Medium": 1, "High": 2}
+geometry_map = {"Straight": 0, "Curve": 1}
+lanes_map = {"2": 0, "4": 1, "6": 2}
+gradient_map = {"Flat": 0, "Moderate": 1, "Steep": 2}
+weather_map = {"Clear": 0, "Rainy": 1, "Foggy": 2}
+vehicle_map = {"Light": 0, "Heavy": 1}
+time_map = {"Day": 0, "Night": 1}
+traffic_map = {"Low": 0, "Medium": 1, "High": 2}
+lighting_map = {"Good": 0, "Poor": 1}
+
+# ---------------- INPUT UI ---------------- #
+st.subheader("📋 Input Road Conditions")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    collision = st.selectbox("Collision Type", collision_map.keys())
+    speed = st.selectbox("Speed Category", speed_map.keys())
+    geometry = st.selectbox("Road Geometry", geometry_map.keys())
+    lanes = st.selectbox("Number of Lanes", lanes_map.keys())
+    gradient = st.selectbox("Gradient", gradient_map.keys())
+
+with col2:
+    weather = st.selectbox("Weather", weather_map.keys())
+    vehicle = st.selectbox("Vehicle Type", vehicle_map.keys())
+    time = st.selectbox("Time of Day", time_map.keys())
+    traffic = st.selectbox("Traffic Volume", traffic_map.keys())
+    lighting = st.selectbox("Lighting Condition", lighting_map.keys())
+
+st.markdown("---")
+
+# ---------------- RISK SCORE FUNCTION ---------------- #
+def calculate_risk():
+    score = 0
+    
+    if speed == "High": score += 3
+    if collision == "Head-on": score += 3
+    if weather != "Clear": score += 2
+    if lighting == "Poor": score += 2
+    if traffic == "High": score += 2
+    if gradient == "Steep": score += 2
+    if geometry == "Curve": score += 2
+    if vehicle == "Heavy": score += 1
+    
+    return score
 
 # ---------------- PREDICTION ---------------- #
-if st.button("Predict Severity"):
+if st.button("🚀 Predict Severity"):
 
-    # ✅ ENCODE WITH GUARANTEED SAFE MAPPING
-    encoded = {
-        col: encoders[col].transform([inputs[col]])[0]
-        for col in inputs
+    input_data = np.array([[
+        collision_map[collision],
+        speed_map[speed],
+        geometry_map[geometry],
+        lanes_map[lanes],
+        gradient_map[gradient],
+        weather_map[weather],
+        vehicle_map[vehicle],
+        time_map[time],
+        traffic_map[traffic],
+        lighting_map[lighting]
+    ]])
+
+    prediction = model.predict(input_data)[0]
+
+    severity_map = {
+        0: "Property Damage",
+        1: "Minor Injury",
+        2: "Grievous Injury",
+        3: "Fatal"
     }
 
-    # ✅ FORCE COLUMN ORDER (THIS FIXES YOUR ERROR)
-    input_df = pd.DataFrame([[encoded[col] for col in feature_order]],
-                            columns=feature_order)
+    result = severity_map[prediction]
 
-    # prediction
-    prediction = model.predict(input_df)[0]
+    # ---------------- RISK SCORE ---------------- #
+    risk_score = calculate_risk()
 
-    severity = encoders['Severity'].inverse_transform([prediction])[0]
+    st.subheader("📊 Results")
 
-    st.subheader(f"🚨 Predicted Severity: {severity}")
+    # Risk Meter
+    st.progress(min(risk_score / 15, 1.0))
+    st.write(f"**Risk Score:** {risk_score}/15")
 
-    # ---------------- RECOMMENDATIONS ---------------- #
-    if severity == "Fatal":
-        st.error("High Risk! Immediate intervention required.")
-        st.write("- Improve road design")
-        st.write("- Install speed control measures")
-        st.write("- Increase enforcement")
+    # ---------------- SEVERITY OUTPUT ---------------- #
+    if result == "Fatal":
+        st.error(f"🚨 Severity: {result}")
+        st.markdown("### 🚧 Recommended Actions")
+        st.markdown("""
+        - Immediate road redesign  
+        - Speed enforcement (cameras, penalties)  
+        - Install crash barriers  
+        - Improve lighting & signage  
+        """)
 
-    elif severity == "Grievous Injury":
-        st.warning("Moderate-High Risk")
-        st.write("- Add warning signs")
-        st.write("- Improve lighting")
-        st.write("- Traffic calming")
+    elif result == "Grievous Injury":
+        st.warning(f"⚠️ Severity: {result}")
+        st.markdown("### 🚧 Recommended Actions")
+        st.markdown("""
+        - Add warning signs  
+        - Improve road markings  
+        - Monitor traffic flow  
+        - Reduce speed limits  
+        """)
 
-    elif severity == "Minor Injury":
-        st.info("Moderate Risk")
-        st.write("- Monitor traffic")
-        st.write("- Improve road markings")
+    elif result == "Minor Injury":
+        st.info(f"ℹ️ Severity: {result}")
+        st.markdown("### 🚧 Recommended Actions")
+        st.markdown("""
+        - Routine inspection  
+        - Minor geometric improvements  
+        - Awareness measures  
+        """)
 
     else:
-        st.success("Low Risk")
-        st.write("- Maintain current conditions")
+        st.success(f"✅ Severity: {result}")
+        st.markdown("### 🚧 Recommended Actions")
+        st.markdown("""
+        - Maintain road conditions  
+        - Regular monitoring  
+        """)
+
+    # ---------------- INSIGHT BOX ---------------- #
+    st.markdown("---")
+    st.subheader("🧠 Insight")
+
+    if risk_score >= 10:
+        st.write("High-risk road segment detected. Immediate intervention required.")
+    elif risk_score >= 6:
+        st.write("Moderate risk. Preventive measures recommended.")
+    else:
+        st.write("Low-risk conditions. Maintain standards.")
+
+# ---------------- FOOTER ---------------- #
+st.markdown("---")
+st.markdown("<p style='text-align: center;'>Built for Road Safety Analysis 🚀</p>", unsafe_allow_html=True)
