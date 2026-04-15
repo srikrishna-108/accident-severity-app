@@ -72,27 +72,33 @@ if st.sidebar.button("🚀 Predict Severity"):
     ]])
 
     dmatrix = xgb.DMatrix(input_data, feature_names=feature_names)
-    probs = model.predict(dmatrix)[0]
+# ---------------- PREDICTION ---------------- #
+probs = model.predict(dmatrix)[0]
 
-    # ---------------- SMART PREDICTION ---------------- #
-    if probs[3] >= 0.20:
-        pred = 3
-    elif probs[2] >= 0.35:
-        pred = 2
-    elif probs[1] >= 0.35:
-        pred = 1
-    else:
-        pred = 0
+# Base prediction (model-driven)
+pred = int(np.argmax(probs))
 
-    severity_map = {
-        0: "Property Damage",
-        1: "Minor Injury",
-        2: "Grievous Injury",
-        3: "Fatal"
-    }
+# ---------------- SMART OVERRIDE (EDGE CASE HANDLING) ---------------- #
+extreme_flag = (
+    speed == "High" and
+    collision in ["Head-on", "Pedestrian"] and
+    lighting == "Poor" and
+    (geometry == "Sharp Curve" or gradient == "Steep")
+)
 
-    result = severity_map[pred]
+# Override only if model has SOME belief in fatal
+if extreme_flag and probs[3] > 0.15:
+    pred = 3
 
+# ---------------- SEVERITY MAPPING ---------------- #
+severity_map = {
+    0: "Property Damage",
+    1: "Minor Injury",
+    2: "Grievous Injury",
+    3: "Fatal"
+}
+
+result = severity_map[pred]
     # ---------------- RISK SCORE ---------------- #
     risk_score = 0
 
