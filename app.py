@@ -22,7 +22,7 @@ collision_map = {"Rear-end": 0, "Side": 1, "Head-on": 2, "Pedestrian": 3}
 time_map = {"Morning": 0, "Afternoon": 1, "Evening": 2, "Night": 3}
 lighting_map = {"Good": 0, "Poor": 1}
 speed_map = {"Low": 0, "Medium": 1, "High": 2}
-lanes_map = {"2": 0, "4": 1, "6+": 2}
+lanes_map = {"2": 0, "4": 1, "6": 2}
 traffic_map = {"Low": 0, "Medium": 1, "High": 2}
 geometry_map = {"Straight": 0, "Moderate Curve": 1, "Sharp Curve": 2}
 gradient_map = {"Flat": 0, "Moderate": 1, "Steep": 2}
@@ -75,11 +75,11 @@ if st.sidebar.button("🚀 Predict Severity"):
     probs = model.predict(dmatrix)[0]
 
     # ---------------- SMART PREDICTION ---------------- #
-    if probs[3] >= 0.30:
+    if probs[3] >= 0.20:
         pred = 3
-    elif probs[2] >= 0.40:
+    elif probs[2] >= 0.35:
         pred = 2
-    elif probs[1] >= 0.40:
+    elif probs[1] >= 0.35:
         pred = 1
     else:
         pred = 0
