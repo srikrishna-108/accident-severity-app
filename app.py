@@ -11,12 +11,10 @@ st.markdown("<h1 style='text-align:center;'>🚧 Accident Severity AI</h1>", uns
 st.markdown("<p style='text-align:center;'>Smart Road Risk Analysis & Decision System</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ---------------- LOAD MODEL ---------------- #
+# ---------------- LOAD MODEL (BOOSTER) ---------------- #
 @st.cache_resource
 def load_model():
-    model = xgb.XGBClassifier()
-    model.load_model("xgb_model.json")
-    return model
+    return xgb.Booster(model_file="xgb_model.json")
 
 model = load_model()
 
@@ -67,8 +65,10 @@ if st.sidebar.button("🚀 Predict"):
         lighting_map[lighting]
     ]])
 
-    # ---------------- PREDICTION ---------------- #
-    pred = model.predict(input_data)[0]
+    # ---------------- PREDICTION USING BOOSTER ---------------- #
+    dmatrix = xgb.DMatrix(input_data)
+    probs = model.predict(dmatrix)
+    pred = int(np.argmax(probs))
 
     severity_map = {
         0: "Property Damage",
@@ -113,18 +113,20 @@ if st.sidebar.button("🚀 Predict"):
     with col2:
         st.subheader("📊 Feature Importance")
 
-        importance = model.feature_importances_
+        importance = model.get_score(importance_type='weight')
+
+        values = [importance.get(f"f{i}", 0) for i in range(len(feature_names))]
 
         fig, ax = plt.subplots()
-        ax.barh(feature_names, importance)
+        ax.barh(feature_names, values)
         ax.set_title("Feature Importance")
         st.pyplot(fig)
 
-    # ---------------- SHAP-LIKE EXPLANATION ---------------- #
+    # ---------------- EXPLANATION ---------------- #
     st.markdown("---")
     st.subheader("🧠 Explanation")
 
-    top_feature_index = np.argmax(model.feature_importances_)
+    top_feature_index = np.argmax(values)
     st.write(f"Most influential factor: **{feature_names[top_feature_index]}**")
 
     # ---------------- RECOMMENDATIONS ---------------- #
@@ -132,19 +134,21 @@ if st.sidebar.button("🚀 Predict"):
     st.subheader("🚧 Recommendations")
 
     if result == "Fatal":
-        st.write("- Immediate redesign")
-        st.write("- Install barriers")
-        st.write("- Speed enforcement")
+        st.write("- Immediate road redesign")
+        st.write("- Install crash barriers")
+        st.write("- Strict speed enforcement")
 
     elif result == "Grievous Injury":
         st.write("- Improve signage")
         st.write("- Reduce speed limits")
+        st.write("- Increase monitoring")
 
     elif result == "Minor Injury":
-        st.write("- Routine monitoring")
+        st.write("- Routine inspection")
+        st.write("- Minor safety improvements")
 
     else:
-        st.write("- Maintain conditions")
+        st.write("- Maintain current conditions")
 
 # ---------------- FOOTER ---------------- #
 st.markdown("---")
