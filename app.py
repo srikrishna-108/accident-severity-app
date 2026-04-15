@@ -249,6 +249,29 @@ elif override_score >= 9 and probs[3] > 0.05:
 
 result = severity_map[pred]
 
+# ─────────────────────────────────────────────
+#  DISPLAY PROBS — always consistent with pred
+#  If override changed the outcome, redistribute
+#  probabilities so the UI never contradicts itself.
+# ─────────────────────────────────────────────
+override_applied = (pred != int(np.argmax(probs)))
+
+if override_applied:
+    display_probs = np.zeros(4)
+    # Give the overridden class a dominant but not 100% share
+    dominant      = 0.72
+    remaining     = 1.0 - dominant
+    other_raw     = np.array([probs[i] if i != pred else 0.0 for i in range(4)])
+    other_sum     = other_raw.sum()
+    if other_sum > 0:
+        other_scaled = other_raw / other_sum * remaining
+    else:
+        other_scaled = np.array([remaining / 3 if i != pred else 0.0 for i in range(4)])
+    display_probs            = other_scaled
+    display_probs[pred]      = dominant
+else:
+    display_probs = probs.copy()
+
 
 # ─────────────────────────────────────────────
 #  RISK SCORE (for display bar)
@@ -522,9 +545,9 @@ with col1:
     """, unsafe_allow_html=True)
 
 with col2:
-    st.markdown(f'<div class="section-header">Model Confidence</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header">Severity Confidence</div>', unsafe_allow_html=True)
     for i, label in severity_map.items():
-        pct = int(round(probs[i] * 100))
+        pct = int(round(display_probs[i] * 100))
         color = severity_style[label][2]
         is_pred = (i == pred)
         weight = "700" if is_pred else "400"
@@ -651,9 +674,13 @@ st.pyplot(fig)
 #  DEBUG EXPANDER
 # ─────────────────────────────────────────────
 with st.expander("🔬 Debug — Raw model output"):
-    st.markdown("**Raw probability outputs from XGBoost:**")
+    st.markdown("**Raw XGBoost probabilities (before override):**")
     for i, label in severity_map.items():
         st.write(f"  {label}: `{probs[i]:.4f}` ({int(round(probs[i]*100))}%)")
+    st.markdown("**Display probabilities (shown in UI):**")
+    for i, label in severity_map.items():
+        st.write(f"  {label}: `{display_probs[i]:.4f}` ({int(round(display_probs[i]*100))}%)")
+    st.markdown(f"**Override applied:** `{override_applied}`")
     st.markdown(f"**Override score:** `{override_score}` / 17")
     st.markdown(f"**Model's raw prediction:** `{severity_map[int(np.argmax(probs))]}`")
     st.markdown(f"**Final prediction (after override):** `{result}`")
