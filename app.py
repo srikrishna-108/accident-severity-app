@@ -3,13 +3,10 @@ import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
 
-# ---------------- PAGE CONFIG ---------------- #
 st.set_page_config(page_title="Accident Severity AI", layout="wide")
 
-# ---------------- HEADER ---------------- #
-st.markdown("<h1 style='text-align:center;'>🚧 Accident Severity AI</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Smart Road Risk Analysis & Decision System</p>", unsafe_allow_html=True)
-st.markdown("---")
+st.title("🚧 Accident Severity Predictor")
+st.markdown("AI-based Road Risk & Severity Analysis")
 
 # ---------------- LOAD MODEL ---------------- #
 @st.cache_resource
@@ -18,19 +15,47 @@ def load_model():
 
 model = load_model()
 
-# ---------------- ENCODING ---------------- #
-collision_map = {"Head-on": 0, "Rear-end": 1, "Side": 2}
-speed_map = {"Low": 0, "Medium": 1, "High": 2}
-geometry_map = {"Straight": 0, "Curve": 1}
-lanes_map = {"2": 0, "4": 1, "6": 2}
-gradient_map = {"Flat": 0, "Moderate": 1, "Steep": 2}
+# ---------------- EXACT CATEGORY MAPS ---------------- #
 weather_map = {"Clear": 0, "Rainy": 1, "Foggy": 2}
-vehicle_map = {"Light": 0, "Heavy": 1}
-time_map = {"Day": 0, "Night": 1}
-traffic_map = {"Low": 0, "Medium": 1, "High": 2}
+
+vehicle_map = {
+    "Two-wheeler": 0,
+    "Car": 1,
+    "Truck": 2,
+    "Bus": 3
+}
+
+collision_map = {
+    "Rear-end": 0,
+    "Side": 1,
+    "Head-on": 2,
+    "Pedestrian": 3
+}
+
+time_map = {
+    "Morning": 0,
+    "Afternoon": 1,
+    "Evening": 2,
+    "Night": 3
+}
+
 lighting_map = {"Good": 0, "Poor": 1}
 
-# ✅ EXACT TRAINING FEATURE ORDER
+speed_map = {"Low": 0, "Medium": 1, "High": 2}
+
+lanes_map = {"2": 0, "4": 1, "6+": 2}
+
+traffic_map = {"Low": 0, "Medium": 1, "High": 2}
+
+geometry_map = {
+    "Straight": 0,
+    "Moderate Curve": 1,
+    "Sharp Curve": 2
+}
+
+gradient_map = {"Flat": 0, "Moderate": 1, "Steep": 2}
+
+# ---------------- FEATURE ORDER ---------------- #
 feature_names = [
     "Weather",
     "Vehicle_Type",
@@ -44,25 +69,23 @@ feature_names = [
     "Gradient"
 ]
 
-# ---------------- SIDEBAR INPUT ---------------- #
-st.sidebar.header("📋 Input Road Conditions")
-
-collision = st.sidebar.selectbox("Collision Type", collision_map.keys())
-speed = st.sidebar.selectbox("Speed Category", speed_map.keys())
-geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
-lanes = st.sidebar.selectbox("Number of Lanes", lanes_map.keys())
-gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
+# ---------------- INPUT UI ---------------- #
+st.sidebar.header("📋 Inputs")
 
 weather = st.sidebar.selectbox("Weather", weather_map.keys())
 vehicle = st.sidebar.selectbox("Vehicle Type", vehicle_map.keys())
+collision = st.sidebar.selectbox("Collision Type", collision_map.keys())
 time = st.sidebar.selectbox("Time of Day", time_map.keys())
-traffic = st.sidebar.selectbox("Traffic Volume", traffic_map.keys())
-lighting = st.sidebar.selectbox("Lighting Condition", lighting_map.keys())
+lighting = st.sidebar.selectbox("Lighting", lighting_map.keys())
+speed = st.sidebar.selectbox("Speed", speed_map.keys())
+lanes = st.sidebar.selectbox("Lanes", lanes_map.keys())
+traffic = st.sidebar.selectbox("Traffic", traffic_map.keys())
+geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
+gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
 
-# ---------------- MAIN ---------------- #
-if st.sidebar.button("🚀 Predict Severity"):
+# ---------------- PREDICTION ---------------- #
+if st.sidebar.button("🚀 Predict"):
 
-    # ✅ CORRECT ORDER (MATCHES TRAINING)
     input_data = np.array([[
         weather_map[weather],
         vehicle_map[vehicle],
@@ -89,77 +112,37 @@ if st.sidebar.button("🚀 Predict Severity"):
 
     result = severity_map[pred]
 
-    # ---------------- RISK SCORE ---------------- #
-    risk_score = sum([
-        3 if speed == "High" else 0,
-        3 if collision == "Head-on" else 0,
-        2 if weather != "Clear" else 0,
-        2 if lighting == "Poor" else 0,
-        2 if traffic == "High" else 0,
-        2 if gradient == "Steep" else 0,
-        2 if geometry == "Curve" else 0,
-        1 if vehicle == "Heavy" else 0
-    ])
-
+    # ---------------- UI OUTPUT ---------------- #
     col1, col2 = st.columns(2)
 
-    # ---------------- RESULT ---------------- #
     with col1:
-        st.subheader("🚨 Prediction Result")
+        st.subheader("🚨 Prediction")
 
         if result == "Fatal":
-            st.error(f"🚨 {result}")
+            st.error(result)
         elif result == "Grievous Injury":
-            st.warning(f"⚠️ {result}")
+            st.warning(result)
         elif result == "Minor Injury":
-            st.info(f"ℹ️ {result}")
+            st.info(result)
         else:
-            st.success(f"✅ {result}")
+            st.success(result)
 
-        st.markdown("### 📊 Risk Score")
-        st.progress(min(risk_score / 15, 1.0))
-        st.write(f"{risk_score} / 15")
-
-    # ---------------- FEATURE IMPORTANCE ---------------- #
+    # ---------------- GRAPH FIX ---------------- #
     with col2:
-        st.subheader("📈 Feature Importance")
+        st.subheader("📊 Feature Importance")
 
-        importance = model.get_score(importance_type='weight')
+        importance = model.get_score(importance_type='gain')
+
         values = [importance.get(f"f{i}", 0) for i in range(len(feature_names))]
 
         fig, ax = plt.subplots()
         ax.barh(feature_names, values)
-        ax.set_title("Feature Importance")
+        ax.set_xlabel("Importance")
         st.pyplot(fig)
 
-    # ---------------- EXPLANATION ---------------- #
+    # ---------------- SIMPLE INSIGHT ---------------- #
     st.markdown("---")
-    st.subheader("🧠 Model Insight")
+    st.subheader("🧠 Insight")
 
-    top_idx = np.argmax(values)
-    st.write(f"Most influential factor: **{feature_names[top_idx]}**")
-
-    # ---------------- RECOMMENDATIONS ---------------- #
-    st.markdown("---")
-    st.subheader("🚧 Safety Recommendations")
-
-    if result == "Fatal":
-        st.write("- Immediate road redesign")
-        st.write("- Install crash barriers")
-        st.write("- Strict speed enforcement")
-
-    elif result == "Grievous Injury":
-        st.write("- Improve signage")
-        st.write("- Reduce speed limits")
-        st.write("- Increase monitoring")
-
-    elif result == "Minor Injury":
-        st.write("- Routine inspection")
-        st.write("- Minor safety improvements")
-
-    else:
-        st.write("- Maintain current safe conditions")
-
-# ---------------- FOOTER ---------------- #
-st.markdown("---")
-st.markdown("<p style='text-align:center;'>🚀 Built for Smart Road Safety Analysis</p>", unsafe_allow_html=True)
+    top_feature = feature_names[np.argmax(values)]
+    st.write(f"Most influencing factor: **{top_feature}**")
