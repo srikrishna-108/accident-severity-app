@@ -56,6 +56,7 @@ geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
 gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
 
 # ---------------- PREDICTION ---------------- #
+# ---------------- PREDICTION ---------------- #
 if st.sidebar.button("🚀 Predict Severity"):
 
     input_data = np.array([[
@@ -72,33 +73,34 @@ if st.sidebar.button("🚀 Predict Severity"):
     ]])
 
     dmatrix = xgb.DMatrix(input_data, feature_names=feature_names)
-# ---------------- PREDICTION ---------------- #
-probs = model.predict(dmatrix)[0]
 
-# Base prediction (model-driven)
-pred = int(np.argmax(probs))
+    # ---------------- MODEL PREDICTION ---------------- #
+    probs = model.predict(dmatrix)[0]
 
-# ---------------- SMART OVERRIDE (EDGE CASE HANDLING) ---------------- #
-extreme_flag = (
-    speed == "High" and
-    collision in ["Head-on", "Pedestrian"] and
-    lighting == "Poor" and
-    (geometry == "Sharp Curve" or gradient == "Steep")
-)
+    # Base prediction
+    pred = int(np.argmax(probs))
 
-# Override only if model has SOME belief in fatal
-if extreme_flag and probs[3] > 0.15:
-    pred = 3
+    # ---------------- SMART OVERRIDE ---------------- #
+    extreme_flag = (
+        speed == "High" and
+        collision in ["Head-on", "Pedestrian"] and
+        lighting == "Poor" and
+        (geometry == "Sharp Curve" or gradient == "Steep")
+    )
 
-# ---------------- SEVERITY MAPPING ---------------- #
-severity_map = {
-    0: "Property Damage",
-    1: "Minor Injury",
-    2: "Grievous Injury",
-    3: "Fatal"
-}
+    if extreme_flag and probs[3] > 0.15:
+        pred = 3
 
-result = severity_map[pred]
+    # ---------------- SEVERITY ---------------- #
+    severity_map = {
+        0: "Property Damage",
+        1: "Minor Injury",
+        2: "Grievous Injury",
+        3: "Fatal"
+    }
+
+    result = severity_map[pred]
+
     # ---------------- RISK SCORE ---------------- #
     risk_score = 0
 
@@ -111,7 +113,6 @@ result = severity_map[pred]
     if gradient == "Steep": risk_score += 2
     if vehicle in ["Truck", "Bus"]: risk_score += 1
 
-    # Normalize to %
     risk_percent = min(int((risk_score / 15) * 100), 100)
 
     # ---------------- OUTPUT ---------------- #
