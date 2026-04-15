@@ -11,7 +11,7 @@ st.markdown("<h1 style='text-align:center;'>🚧 Accident Severity AI</h1>", uns
 st.markdown("<p style='text-align:center;'>Smart Road Risk Analysis & Decision System</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ---------------- LOAD MODEL (BOOSTER) ---------------- #
+# ---------------- LOAD MODEL ---------------- #
 @st.cache_resource
 def load_model():
     return xgb.Booster(model_file="xgb_model.json")
@@ -30,43 +30,53 @@ time_map = {"Day": 0, "Night": 1}
 traffic_map = {"Low": 0, "Medium": 1, "High": 2}
 lighting_map = {"Good": 0, "Poor": 1}
 
+# ✅ EXACT TRAINING FEATURE ORDER
 feature_names = [
-    "Collision", "Speed", "Geometry", "Lanes", "Gradient",
-    "Weather", "Vehicle", "Time", "Traffic", "Lighting"
+    "Weather",
+    "Vehicle_Type",
+    "Collision_Type",
+    "Time_of_Day",
+    "Lighting",
+    "Speed_Category",
+    "Number_of_Lanes",
+    "Traffic_Volume",
+    "Road_Geometry",
+    "Gradient"
 ]
 
-# ---------------- INPUT UI ---------------- #
-st.sidebar.header("📋 Input Parameters")
+# ---------------- SIDEBAR INPUT ---------------- #
+st.sidebar.header("📋 Input Road Conditions")
 
 collision = st.sidebar.selectbox("Collision Type", collision_map.keys())
-speed = st.sidebar.selectbox("Speed", speed_map.keys())
+speed = st.sidebar.selectbox("Speed Category", speed_map.keys())
 geometry = st.sidebar.selectbox("Road Geometry", geometry_map.keys())
-lanes = st.sidebar.selectbox("Lanes", lanes_map.keys())
+lanes = st.sidebar.selectbox("Number of Lanes", lanes_map.keys())
 gradient = st.sidebar.selectbox("Gradient", gradient_map.keys())
+
 weather = st.sidebar.selectbox("Weather", weather_map.keys())
 vehicle = st.sidebar.selectbox("Vehicle Type", vehicle_map.keys())
-time = st.sidebar.selectbox("Time", time_map.keys())
-traffic = st.sidebar.selectbox("Traffic", traffic_map.keys())
-lighting = st.sidebar.selectbox("Lighting", lighting_map.keys())
+time = st.sidebar.selectbox("Time of Day", time_map.keys())
+traffic = st.sidebar.selectbox("Traffic Volume", traffic_map.keys())
+lighting = st.sidebar.selectbox("Lighting Condition", lighting_map.keys())
 
 # ---------------- MAIN ---------------- #
-if st.sidebar.button("🚀 Predict"):
+if st.sidebar.button("🚀 Predict Severity"):
 
+    # ✅ CORRECT ORDER (MATCHES TRAINING)
     input_data = np.array([[
-        collision_map[collision],
-        speed_map[speed],
-        geometry_map[geometry],
-        lanes_map[lanes],
-        gradient_map[gradient],
         weather_map[weather],
         vehicle_map[vehicle],
+        collision_map[collision],
         time_map[time],
+        lighting_map[lighting],
+        speed_map[speed],
+        lanes_map[lanes],
         traffic_map[traffic],
-        lighting_map[lighting]
+        geometry_map[geometry],
+        gradient_map[gradient]
     ]])
 
-    # ---------------- PREDICTION USING BOOSTER ---------------- #
-    dmatrix = xgb.DMatrix(input_data)
+    dmatrix = xgb.DMatrix(input_data, feature_names=feature_names)
     probs = model.predict(dmatrix)
     pred = int(np.argmax(probs))
 
@@ -98,23 +108,23 @@ if st.sidebar.button("🚀 Predict"):
         st.subheader("🚨 Prediction Result")
 
         if result == "Fatal":
-            st.error(result)
+            st.error(f"🚨 {result}")
         elif result == "Grievous Injury":
-            st.warning(result)
+            st.warning(f"⚠️ {result}")
         elif result == "Minor Injury":
-            st.info(result)
+            st.info(f"ℹ️ {result}")
         else:
-            st.success(result)
+            st.success(f"✅ {result}")
 
+        st.markdown("### 📊 Risk Score")
         st.progress(min(risk_score / 15, 1.0))
-        st.write(f"Risk Score: {risk_score}/15")
+        st.write(f"{risk_score} / 15")
 
     # ---------------- FEATURE IMPORTANCE ---------------- #
     with col2:
-        st.subheader("📊 Feature Importance")
+        st.subheader("📈 Feature Importance")
 
         importance = model.get_score(importance_type='weight')
-
         values = [importance.get(f"f{i}", 0) for i in range(len(feature_names))]
 
         fig, ax = plt.subplots()
@@ -124,14 +134,14 @@ if st.sidebar.button("🚀 Predict"):
 
     # ---------------- EXPLANATION ---------------- #
     st.markdown("---")
-    st.subheader("🧠 Explanation")
+    st.subheader("🧠 Model Insight")
 
-    top_feature_index = np.argmax(values)
-    st.write(f"Most influential factor: **{feature_names[top_feature_index]}**")
+    top_idx = np.argmax(values)
+    st.write(f"Most influential factor: **{feature_names[top_idx]}**")
 
     # ---------------- RECOMMENDATIONS ---------------- #
     st.markdown("---")
-    st.subheader("🚧 Recommendations")
+    st.subheader("🚧 Safety Recommendations")
 
     if result == "Fatal":
         st.write("- Immediate road redesign")
@@ -148,8 +158,8 @@ if st.sidebar.button("🚀 Predict"):
         st.write("- Minor safety improvements")
 
     else:
-        st.write("- Maintain current conditions")
+        st.write("- Maintain current safe conditions")
 
 # ---------------- FOOTER ---------------- #
 st.markdown("---")
-st.markdown("<p style='text-align:center;'>🚀 AI for Safer Roads</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>🚀 Built for Smart Road Safety Analysis</p>", unsafe_allow_html=True)
