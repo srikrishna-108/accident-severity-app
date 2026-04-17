@@ -1,9 +1,13 @@
 import streamlit as st
 import numpy as np
-import xgboost as xgb
+import pandas as pd
+import pickle
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
+# ─────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Accident Severity AI",
     layout="wide",
@@ -11,18 +15,16 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  CUSTOM CSS
+# CUSTOM CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Sidebar */
     [data-testid="stSidebar"] {
         background: #f8f9fb;
         border-right: 1px solid #e0e4ea;
     }
     [data-testid="stSidebar"] .block-container { padding-top: 1.5rem; }
 
-    /* Cards */
     .severity-card {
         border-radius: 14px;
         padding: 1.4rem 1.6rem;
@@ -42,7 +44,6 @@ st.markdown("""
     .minor-title    { color:#2e7d32; }
     .property-title { color:#1565c0; }
 
-    /* Risk bar */
     .risk-bar-bg {
         background:#e0e4ea; border-radius:8px;
         height:18px; width:100%; margin:8px 0 4px;
@@ -53,7 +54,6 @@ st.markdown("""
         transition: width 0.5s ease;
     }
 
-    /* Factor pills */
     .factor-pill {
         display:inline-block;
         padding:3px 12px;
@@ -67,7 +67,6 @@ st.markdown("""
     .pill-yellow { background:#fffde7; color:#f57f17; border:1px solid #f9a825; }
     .pill-green  { background:#e8f5e9; color:#2e7d32; border:1px solid #43a047; }
 
-    /* Reason cards */
     .reason-block {
         background:#fafbfc;
         border-left:4px solid #e53935;
@@ -80,7 +79,6 @@ st.markdown("""
     .reason-block.yellow { border-color:#fdd835; }
     .reason-block.green  { border-color:#43a047; background:#f1f8f1; }
 
-    /* Recommendation cards */
     .rec-card {
         background:#fff;
         border:1px solid #dde2ea;
@@ -91,7 +89,6 @@ st.markdown("""
     }
     .rec-icon { font-size:1.2rem; margin-right:8px; }
 
-    /* Section headers */
     .section-header {
         font-size:1.1rem;
         font-weight:700;
@@ -101,194 +98,102 @@ st.markdown("""
         margin:1.4rem 0 .9rem;
     }
 
-    /* Metric tiles */
-    .metric-tile {
-        background:#f4f6fa;
-        border-radius:10px;
-        padding:.9rem 1rem;
-        text-align:center;
-    }
-    .metric-tile .val { font-size:1.7rem; font-weight:700; color:#1a1a2e; }
-    .metric-tile .lbl { font-size:.78rem; color:#888; margin-top:2px; }
-
-    /* Debug expander clean */
     .stExpander { border:1px solid #e0e4ea !important; border-radius:10px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ─────────────────────────────────────────────
-#  LOAD MODEL
+# LOAD MODEL + ENCODERS + METADATA
 # ─────────────────────────────────────────────
 @st.cache_resource
-def load_model():
-    return xgb.Booster(model_file="xgb_model.json")
+def load_artifacts():
+    with open("rf_model.pkl", "rb") as f:
+        model = pickle.load(f)
 
-model = load_model()
+    with open("encoders.pkl", "rb") as f:
+        encoders = pickle.load(f)
 
+    with open("metadata.pkl", "rb") as f:
+        metadata = pickle.load(f)
 
-# ─────────────────────────────────────────────
-#  CATEGORY MAPS
-# ─────────────────────────────────────────────
-weather_map   = {"Clear": 0, "Rainy": 1, "Foggy": 2}
-vehicle_map   = {"Two-wheeler": 0, "Car": 1, "Truck": 2, "Bus": 3}
-collision_map = {"Rear-end": 0, "Side": 1, "Head-on": 2, "Pedestrian": 3}
-time_map      = {"Morning": 0, "Afternoon": 1, "Evening": 2, "Night": 3}
-lighting_map  = {"Good": 0, "Poor": 1}
-speed_map     = {"Low": 0, "Medium": 1, "High": 2}
-lanes_map     = {"2": 0, "4": 1, "6": 2}
-traffic_map   = {"Low": 0, "Medium": 1, "High": 2}
-geometry_map  = {"Straight": 0, "Moderate Curve": 1, "Sharp Curve": 2}
-gradient_map  = {"Flat": 0, "Moderate": 1, "Steep": 2}
+    return model, encoders, metadata
 
-feature_names = [
-    "Weather", "Vehicle_Type", "Collision_Type", "Time_of_Day",
-    "Lighting", "Speed_Category", "Number_of_Lanes",
-    "Traffic_Volume", "Road_Geometry", "Gradient"
-]
+model, encoders, metadata = load_artifacts()
 
-severity_map = {
-    0: "Property Damage",
-    1: "Minor Injury",
-    2: "Grievous Injury",
-    3: "Fatal"
-}
+feature_order = metadata["feature_order"]
+severity_labels = metadata["severity_labels"]
+display_labels = metadata["display_labels"]
 
 severity_style = {
     "Fatal":           ("card-fatal",    "fatal-title",    "#e53935"),
-    "Grievous Injury": ("card-grievous", "grievous-title", "#fb8c00"),
-    "Minor Injury":    ("card-minor",    "minor-title",    "#43a047"),
-    "Property Damage": ("card-property", "property-title", "#1e88e5"),
+    "Grievous Injuries": ("card-grievous", "grievous-title", "#fb8c00"),
+    "Simple Injuries": ("card-minor",    "minor-title",    "#43a047"),
+    "No Injury":       ("card-property", "property-title", "#1e88e5"),
 }
 
 severity_icon = {
-    "Fatal":           "🔴",
-    "Grievous Injury": "🟠",
-    "Minor Injury":    "🟢",
-    "Property Damage": "🔵",
+    "Fatal": "🔴",
+    "Grievous Injuries": "🟠",
+    "Simple Injuries": "🟢",
+    "No Injury": "🔵",
 }
 
-
 # ─────────────────────────────────────────────
-#  SIDEBAR — INPUT UI
+# SIDEBAR INPUTS
 # ─────────────────────────────────────────────
 st.sidebar.markdown("## Road Conditions")
 st.sidebar.markdown("Fill in the scenario details below and click **Predict**.")
 st.sidebar.markdown("---")
 
-weather   = st.sidebar.selectbox("🌦 Weather",          list(weather_map.keys()))
-lighting  = st.sidebar.selectbox("💡 Lighting",         list(lighting_map.keys()))
-time      = st.sidebar.selectbox("🕐 Time of Day",      list(time_map.keys()))
-st.sidebar.markdown("---")
-vehicle   = st.sidebar.selectbox("🚗 Vehicle Type",     list(vehicle_map.keys()))
-speed     = st.sidebar.selectbox("⚡ Speed Category",   list(speed_map.keys()))
-collision = st.sidebar.selectbox("💥 Collision Type",   list(collision_map.keys()))
-st.sidebar.markdown("---")
-geometry  = st.sidebar.selectbox("🛣 Road Geometry",    list(geometry_map.keys()))
-gradient  = st.sidebar.selectbox("⛰ Road Gradient",    list(gradient_map.keys()))
-lanes     = st.sidebar.selectbox("🔢 Number of Lanes",  list(lanes_map.keys()))
-traffic   = st.sidebar.selectbox("🚦 Traffic Volume",   list(traffic_map.keys()))
-st.sidebar.markdown("---")
+user_inputs = {}
+for col in feature_order:
+    options = list(encoders[col].classes_)
+    label = display_labels.get(col, col)
+    user_inputs[col] = st.sidebar.selectbox(label, options)
 
+st.sidebar.markdown("---")
 predict_btn = st.sidebar.button("🚀 Predict Severity", use_container_width=True)
 
-
 # ─────────────────────────────────────────────
-#  HEADER
+# HEADER
 # ─────────────────────────────────────────────
 st.markdown("# 🚧 Accident Severity Predictor")
-st.markdown("Smart Road Risk & Severity Analysis System — powered by XGBoost")
+st.markdown("Smart Road Risk & Severity Analysis System — powered by Tuned Random Forest")
 st.markdown("---")
 
 if not predict_btn:
     st.info("👈 Configure road conditions in the sidebar and click **Predict Severity** to begin.")
     st.stop()
 
+# ─────────────────────────────────────────────
+# ENCODE INPUT
+# ─────────────────────────────────────────────
+encoded_row = []
+for col in feature_order:
+    encoded_val = encoders[col].transform([user_inputs[col]])[0]
+    encoded_row.append(encoded_val)
+
+input_df = pd.DataFrame([encoded_row], columns=feature_order)
 
 # ─────────────────────────────────────────────
-#  BUILD INPUT VECTOR
+# PREDICTION
 # ─────────────────────────────────────────────
-input_data = np.array([[
-    weather_map[weather],
-    vehicle_map[vehicle],
-    collision_map[collision],
-    time_map[time],
-    lighting_map[lighting],
-    speed_map[speed],
-    lanes_map[lanes],
-    traffic_map[traffic],
-    geometry_map[geometry],
-    gradient_map[gradient]
-]])
+pred = int(model.predict(input_df)[0])
+probs = model.predict_proba(input_df)[0]
 
-dmatrix = xgb.DMatrix(input_data, feature_names=feature_names)
-probs   = model.predict(dmatrix)[0]
-pred    = int(np.argmax(probs))
-
+result = severity_labels[pred]
 
 # ─────────────────────────────────────────────
-#  SMART OVERRIDE — SCORE-BASED (FIXED)
+# RISK SCORE (Probability-based)
 # ─────────────────────────────────────────────
-override_score = 0
-if speed == "High":                              override_score += 3
-if collision in ["Head-on", "Pedestrian"]:       override_score += 3
-if lighting == "Poor":                           override_score += 2
-if weather in ["Foggy", "Rainy"]:               override_score += 2
-if geometry == "Sharp Curve":                    override_score += 2
-if gradient == "Steep":                          override_score += 2
-if vehicle == "Two-wheeler":                     override_score += 1
-if time in ["Night", "Evening"]:                 override_score += 1
-if traffic == "High":                            override_score += 1
+risk_weights = {
+    0: 0.10,   # No Injury
+    1: 0.40,   # Simple Injuries
+    2: 0.75,   # Grievous Injuries
+    3: 1.00    # Fatal
+}
 
-# Hard fatal — absolute worst case
-if override_score >= 12:
-    pred = 3
-# Soft fatal — high risk + model partially agrees
-elif override_score >= 9 and probs[3] > 0.05:
-    pred = 3
-
-result = severity_map[pred]
-
-# ─────────────────────────────────────────────
-#  DISPLAY PROBS — always consistent with pred
-#  If override changed the outcome, redistribute
-#  probabilities so the UI never contradicts itself.
-# ─────────────────────────────────────────────
-override_applied = (pred != int(np.argmax(probs)))
-
-if override_applied:
-    display_probs = np.zeros(4)
-    # Give the overridden class a dominant but not 100% share
-    dominant      = 0.72
-    remaining     = 1.0 - dominant
-    other_raw     = np.array([probs[i] if i != pred else 0.0 for i in range(4)])
-    other_sum     = other_raw.sum()
-    if other_sum > 0:
-        other_scaled = other_raw / other_sum * remaining
-    else:
-        other_scaled = np.array([remaining / 3 if i != pred else 0.0 for i in range(4)])
-    display_probs            = other_scaled
-    display_probs[pred]      = dominant
-else:
-    display_probs = probs.copy()
-
-
-# ─────────────────────────────────────────────
-#  RISK SCORE (for display bar)
-# ─────────────────────────────────────────────
-risk_score = 0
-if speed == "High":                              risk_score += 3
-if collision in ["Head-on", "Pedestrian"]:       risk_score += 3
-if weather != "Clear":                           risk_score += 2
-if lighting == "Poor":                           risk_score += 2
-if traffic == "High":                            risk_score += 2
-if geometry == "Sharp Curve":                    risk_score += 2
-if gradient == "Steep":                          risk_score += 2
-if vehicle in ["Two-wheeler"]:                   risk_score += 2
-if time in ["Night"]:                            risk_score += 1
-if vehicle in ["Truck", "Bus"]:                  risk_score += 1
-
-risk_percent = min(int((risk_score / 20) * 100), 100)
+risk_percent = int(sum(probs[i] * risk_weights[i] for i in range(len(probs))) * 100)
 
 risk_color = (
     "#e53935" if risk_percent >= 70 else
@@ -303,221 +208,138 @@ risk_label = (
     "Low"
 )
 
-
 # ─────────────────────────────────────────────
-#  DYNAMIC REASONS (context-aware)
+# DYNAMIC REASONS
 # ─────────────────────────────────────────────
-def build_reasons(speed, collision, weather, lighting, geometry,
-                  gradient, vehicle, time, traffic, result):
+def build_reasons(inp, result):
     reasons = []
 
-    # Speed
-    if speed == "High":
-        if collision == "Head-on":
-            reasons.append(("red",
-                "High speed + head-on collision: kinetic energy is squared with velocity — "
-                "impact force at high speed is 4× that of medium speed. Survival odds drop sharply."))
-        elif collision == "Pedestrian":
-            reasons.append(("red",
-                "High-speed pedestrian strike: at speeds above 60 km/h, pedestrian fatality "
-                "risk exceeds 85%. No protective structure absorbs the impact."))
-        else:
-            reasons.append(("orange",
-                f"High speed with {collision.lower()} collision increases severity. "
-                "Braking distance at high speed can exceed 3× that at medium speed."))
-    elif speed == "Medium":
-        reasons.append(("yellow",
-            "Medium speed still carries moderate injury risk, especially on curves or wet roads."))
+    cause = inp.get("Cause", "")
+    time_of_day = inp.get("Time of Day", "")
+    day_type = inp.get("Day Type", "")
+    road_geometry = inp.get("Road Geometry", "")
+    victim_vehicle = inp.get("Victim Vehicle Type", "")
+    offender_vehicle = inp.get("Offending Vehicle Type", "")
+    victim_manoeuvre = inp.get("Victim Manoeuvre", "")
+    offender_manoeuvre = inp.get("Offender Manoeuvre", "")
+    accident_type = inp.get("Type of Accident", "")
 
-    # Collision type
-    if collision == "Head-on":
+    if "Over Speeding" in cause:
         reasons.append(("red",
-            "Head-on collisions are the deadliest collision type — combined closing speed doubles "
-            "impact force. Even at medium speed, head-on crashes cause disproportionate fatalities."))
-    elif collision == "Pedestrian":
-        if vehicle in ["Truck", "Bus"]:
-            reasons.append(("red",
-                f"{vehicle} vs pedestrian: large vehicle height means the torso, not the legs, "
-                "takes primary impact — dramatically raising fatal injury risk."))
-        else:
-            reasons.append(("orange",
-                "Pedestrian collision: unprotected road users have no crumple zone or airbag. "
-                "Severe injuries are common even at moderate speeds."))
-    elif collision == "Rear-end" and traffic == "High":
-        reasons.append(("yellow",
-            "Rear-end collision in high traffic: chain-reaction risk is elevated. "
-            "Multiple vehicle pile-ups can escalate a minor initial impact."))
+            "Overspeeding is a dominant crash driver in this corridor and significantly increases impact severity."))
 
-    # Lighting
-    if lighting == "Poor":
-        if time == "Night":
-            reasons.append(("red",
-                "Poor lighting at night: driver reaction time increases 2–3× in darkness. "
-                "Pedestrians and hazards are detected far later, leaving no time to brake."))
-        else:
-            reasons.append(("orange",
-                "Poor lighting (dusk/artificial): reduced contrast and glare extend stopping "
-                "distances and raise the chance of missed hazard detection."))
-
-    # Weather
-    if weather == "Foggy":
+    if "Drunken" in cause:
         reasons.append(("red",
-            "Fog reduces visibility to under 50m in dense conditions. Drivers often "
-            "maintain unsafe speeds, leading to multi-vehicle chain crashes."))
-    elif weather == "Rainy":
-        if geometry == "Sharp Curve":
-            reasons.append(("red",
-                "Rain + sharp curve: wet road friction drops by ~30%. Vehicles take curves "
-                "at speeds safe in dry conditions but lose grip on wet asphalt."))
-        else:
-            reasons.append(("orange",
-                "Rainy conditions: wet roads increase stopping distance by 50–70%. "
-                "Hydroplaning risk rises with vehicle speed."))
+            "Drunken driving severely reduces reaction time and decision-making, increasing the probability of severe outcomes."))
 
-    # Road geometry
-    if geometry == "Sharp Curve":
-        if gradient == "Steep":
-            reasons.append(("red",
-                "Sharp curve + steep gradient: compounded risk. Centrifugal force on the curve "
-                "combined with gravity on the slope dramatically raises rollover and run-off risk."))
-        else:
-            reasons.append(("orange",
-                "Sharp curve: lateral forces on vehicles exceed safe limits if speed isn't reduced. "
-                "Trucks and buses are at rollover risk; two-wheelers at skid risk."))
-    elif geometry == "Moderate Curve" and speed == "High":
-        reasons.append(("yellow",
-            "Moderate curve at high speed: can become dangerous, especially in adverse weather "
-            "or with loaded trucks."))
-
-    # Gradient
-    if gradient == "Steep" and vehicle in ["Truck", "Bus"]:
+    if "Loss of Control" in cause:
         reasons.append(("orange",
-            f"Steep gradient with {vehicle}: heavy vehicles experience brake fade on long descents. "
-            "Brake failure on steep slopes is a leading cause of fatal truck accidents."))
-    elif gradient == "Steep":
-        reasons.append(("yellow",
-            "Steep gradient: increases braking distance going downhill and reduces "
-            "vehicle control at higher speeds."))
+            "Loss of control indicates unstable driving conditions and often leads to high-energy crashes."))
 
-    # Vehicle
-    if vehicle == "Two-wheeler":
+    if "Bad Road" in cause or "Visibility" in cause:
         reasons.append(("orange",
-            "Two-wheeler: motorcyclists have no protective shell, airbag, or crumple zone. "
-            "Injury severity is consistently higher than for car occupants at the same impact speed."))
-    if vehicle in ["Truck", "Bus"] and collision == "Head-on":
+            "Environmental and roadway conditions appear to have contributed to this scenario."))
+
+    if time_of_day == "Night":
+        reasons.append(("orange",
+            "Night-time driving typically increases risk because of fatigue, poor visibility, and delayed hazard detection."))
+
+    if day_type == "Weekend" and time_of_day == "Night":
         reasons.append(("red",
-            f"{vehicle} in head-on collision: mass disparity means the lighter vehicle "
-            "absorbs most of the deformation energy. Occupant survival is severely compromised."))
+            "Weekend night conditions are associated with higher risk due to nightlife traffic and impaired driving probability."))
 
-    # Time
-    if time == "Night" and lighting == "Good":
+    if road_geometry in ["Curved Road", "Bridge", "Steep Grade", "T - Junction", "Y - Junction", "Four Arm Junction"]:
+        reasons.append(("orange",
+            "This road geometry is operationally more complex than a straight segment and can elevate crash severity."))
+
+    if victim_vehicle in ["Two Wheeler", "Pedestrian"]:
+        reasons.append(("red",
+            "Unprotected road users such as two-wheelers and pedestrians are more vulnerable to severe injuries."))
+
+    if offender_vehicle in ["Heavy Vehicle", "Truck/Lorry", "Bus - RTC", "Bus", "Bus - Private"]:
+        reasons.append(("orange",
+            "Heavy vehicle involvement can increase crash force and injury severity due to mass disparity."))
+
+    if accident_type in ["Head on", "Front back", "Front side"]:
+        reasons.append(("red",
+            "This accident type is generally associated with stronger impact forces and higher injury risk."))
+
+    if victim_manoeuvre in ["Crossing", "Wrong side driving", "U Turn"]:
         reasons.append(("yellow",
-            "Night-time driving with adequate lighting still raises fatigue-related risk. "
-            "Driver alertness drops significantly after midnight."))
+            "The victim manoeuvre indicates conflict-prone movement, which may increase severity."))
 
-    # Traffic
-    if traffic == "High" and collision == "Side":
+    if offender_manoeuvre in ["Over Taking", "Wrong side driving", "U Turn"]:
         reasons.append(("yellow",
-            "Side collision in high-traffic: secondary impacts from surrounding vehicles "
-            "are likely. Injury can compound from multiple collision events."))
+            "The offending manoeuvre suggests risky lateral or directional movement, contributing to crash escalation."))
 
-    # Positive factor — something working in their favour
-    if result != "Fatal" and speed == "Low":
+    if result in ["No Injury", "Simple Injuries"] and cause == "Over Speeding":
         reasons.append(("green",
-            "Low speed: significantly limits injury severity. At speeds under 30 km/h, "
-            "most collisions are survivable with minor injuries."))
-    if result != "Fatal" and weather == "Clear" and lighting == "Good":
-        reasons.append(("green",
-            "Clear weather and good lighting: optimal visibility gives drivers maximum "
-            "reaction time to detect and respond to hazards."))
+            "Although overspeeding is a major risk, the current combination of other factors may have limited the predicted severity."))
 
-    return reasons[:7]  # cap at 7 for readability
+    return reasons[:7]
 
-
-reasons = build_reasons(
-    speed, collision, weather, lighting, geometry,
-    gradient, vehicle, time, traffic, result
-)
-
+reasons = build_reasons(user_inputs, result)
 
 # ─────────────────────────────────────────────
-#  DYNAMIC RECOMMENDATIONS
+# DYNAMIC RECOMMENDATIONS
 # ─────────────────────────────────────────────
-def build_recommendations(speed, collision, weather, lighting,
-                           geometry, gradient, vehicle, time, traffic, result):
+def build_recommendations(inp, result):
     recs = []
 
+    cause = inp.get("Cause", "")
+    time_of_day = inp.get("Time of Day", "")
+    day_type = inp.get("Day Type", "")
+    road_geometry = inp.get("Road Geometry", "")
+    victim_vehicle = inp.get("Victim Vehicle Type", "")
+    offender_vehicle = inp.get("Offending Vehicle Type", "")
+    accident_type = inp.get("Type of Accident", "")
+
     if result == "Fatal":
-        recs.append(("🚨", "Immediate action required",
-            "This combination of factors creates extreme fatality risk. "
-            "Traffic authorities should consider temporary road closure or mandatory speed restrictions."))
+        recs.append(("🚨", "Immediate high-risk intervention",
+            "This scenario indicates extreme crash severity risk. Temporary traffic control and speed enforcement should be prioritized."))
 
-    if speed == "High":
-        recs.append(("📷", "Enforce speed limits electronically",
-            "Deploy average-speed cameras across this road segment. "
-            "Research shows a 10 km/h reduction in average speed cuts fatalities by ~34%."))
+    if "Over Speeding" in cause:
+        recs.append(("📷", "Speed enforcement",
+            "Install speed cameras, rumble strips, and warning signage to reduce high-speed crashes on this stretch."))
 
-    if lighting == "Poor":
-        if time == "Night":
-            recs.append(("💡", "Install adaptive street lighting",
-                "Sensor-activated LED lighting at this location would improve visibility 5–10× "
-                "and has been shown to reduce night-time accidents by up to 30%."))
-        else:
-            recs.append(("💡", "Improve roadway lighting",
-                "Upgrade to high-lumen LED fixtures at dusk-prone segments. "
-                "Reflective road markings should also be renewed."))
+    if "Drunken" in cause:
+        recs.append(("🍺", "Impaired driving control",
+            "Increase breathalyzer checks and police patrols, especially during weekend evenings and nights."))
 
-    if geometry == "Sharp Curve":
-        recs.append(("⚠️", "Install curve warning infrastructure",
-            "Place dynamic speed advisory signs 200m before the curve. "
-            "Add chevron markers, Armco barriers, and skid-resistant surface on the curve itself."))
+    if road_geometry in ["Curved Road", "Bridge", "Steep Grade"]:
+        recs.append(("⚠️", "Geometry-based safety treatment",
+            "Provide chevron signs, reflective markers, crash barriers, and curve-speed warnings in high-risk geometric sections."))
 
-    if weather in ["Rainy", "Foggy"]:
-        recs.append(("🌧", "Deploy weather-responsive signage",
-            "Connect variable message signs to real-time weather sensors. "
-            "Automatically lower posted speed limits when rainfall or fog is detected."))
+    if road_geometry in ["T - Junction", "Y - Junction", "Four Arm Junction", "Staggered Junction", "Round about"]:
+        recs.append(("🚦", "Junction safety improvement",
+            "Improve junction channelization, signage, and visibility. Consider signal optimization or conflict reduction measures."))
 
-    if collision in ["Pedestrian"]:
-        recs.append(("🚶", "Pedestrian safety infrastructure",
-            "Install raised crossings, pedestrian refuge islands, and countdown timers. "
-            "Consider pedestrian detection systems at this junction."))
+    if victim_vehicle in ["Two Wheeler", "Pedestrian"]:
+        recs.append(("🏍", "Vulnerable road user protection",
+            "Strengthen pedestrian and two-wheeler safety through crossings, separators, reflectors, and visibility improvements."))
 
-    if collision == "Head-on":
-        recs.append(("🛡", "Install central road dividers",
-            "Physical separation (concrete barrier or wire rope median) eliminates "
-            "head-on risk entirely. This single intervention reduces fatal head-on crashes by ~90%."))
+    if offender_vehicle in ["Heavy Vehicle", "Truck/Lorry", "Bus - RTC", "Bus", "Bus - Private"]:
+        recs.append(("🛻", "Heavy vehicle management",
+            "Introduce lane discipline enforcement and targeted controls for buses and trucks in mixed-traffic environments."))
 
-    if gradient == "Steep" and vehicle in ["Truck", "Bus"]:
-        recs.append(("🔧", "Heavy vehicle gradient controls",
-            "Mandate pre-descent brake checks for heavy vehicles. "
-            "Install escape ramps (runaway truck ramps) on long descents."))
+    if time_of_day == "Night":
+        recs.append(("💡", "Night safety measures",
+            "Improve lighting, reflective markings, and late-night enforcement coverage for better hazard visibility."))
 
-    if vehicle == "Two-wheeler":
-        recs.append(("🏍", "Motorcycle safety measures",
-            "Ensure road surface has anti-skid treatment. "
-            "Mandate ABS on all motorcycles above 125cc — ABS reduces fatal crashes by 31%."))
+    if day_type == "Weekend":
+        recs.append(("📅", "Weekend traffic control",
+            "Weekend-specific patrols and traffic calming should be considered due to behavioral variation in traffic flow."))
 
-    if traffic == "High":
-        recs.append(("🚦", "Intelligent traffic management",
-            "Adaptive signal control at junctions reduces stop-and-go conflicts. "
-            "Consider ramp metering or dynamic lane assignment during peak hours."))
-
-    if time == "Night":
-        recs.append(("🌙", "Night-time safety patrols",
-            "Increase police visibility during 10 PM – 4 AM window. "
-            "Alcohol checkpoints at this location reduce DUI incidents by up to 20%."))
+    if accident_type in ["Head on", "Front back", "Front side"]:
+        recs.append(("🛡", "Impact severity mitigation",
+            "Introduce speed moderation, median protection, and lane discipline strategies to reduce severe collision outcomes."))
 
     return recs[:6]
 
-
-recs = build_recommendations(
-    speed, collision, weather, lighting,
-    geometry, gradient, vehicle, time, traffic, result
-)
-
+recs = build_recommendations(user_inputs, result)
 
 # ─────────────────────────────────────────────
-#  LAYOUT — ROW 1: Severity + Risk + Metrics
+# LAYOUT — ROW 1
 # ─────────────────────────────────────────────
 card_cls, title_cls, bar_color = severity_style[result]
 
@@ -533,7 +355,7 @@ with col1:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f'<div class="section-header">Risk Level</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Risk Level</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div style="margin-bottom:.3rem; font-size:.9rem; color:#555;">
         Overall risk: <strong style="color:{risk_color}">{risk_label}</strong>
@@ -541,13 +363,14 @@ with col1:
     <div class="risk-bar-bg">
         <div class="risk-bar-fill" style="width:{risk_percent}%;background:{risk_color};"></div>
     </div>
-    <div style="font-size:.8rem;color:#888;margin-top:2px;">{risk_percent}% of maximum risk</div>
+    <div style="font-size:.8rem;color:#888;margin-top:2px;">{risk_percent}% estimated severity risk</div>
     """, unsafe_allow_html=True)
 
 with col2:
-    st.markdown(f'<div class="section-header">Severity Confidence</div>', unsafe_allow_html=True)
-    for i, label in severity_map.items():
-        pct = int(round(display_probs[i] * 100))
+    st.markdown('<div class="section-header">Severity Confidence</div>', unsafe_allow_html=True)
+    for i in range(len(probs)):
+        label = severity_labels[i]
+        pct = int(round(probs[i] * 100))
         color = severity_style[label][2]
         is_pred = (i == pred)
         weight = "700" if is_pred else "400"
@@ -565,18 +388,22 @@ with col2:
         """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown(f'<div class="section-header">Scenario Summary</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Scenario Summary</div>', unsafe_allow_html=True)
 
     active_factors = []
-    if speed == "High":                             active_factors.append(("High speed",    "red"))
-    if collision in ["Head-on", "Pedestrian"]:      active_factors.append((collision,        "red"))
-    if lighting == "Poor":                          active_factors.append(("Poor lighting", "orange"))
-    if weather != "Clear":                          active_factors.append((weather,          "orange"))
-    if geometry == "Sharp Curve":                   active_factors.append(("Sharp curve",   "orange"))
-    if gradient == "Steep":                         active_factors.append(("Steep gradient","yellow"))
-    if vehicle == "Two-wheeler":                    active_factors.append(("Two-wheeler",   "yellow"))
-    if time == "Night":                             active_factors.append(("Night-time",    "yellow"))
-    if speed == "Low" and weather == "Clear":       active_factors.append(("Low risk env.", "green"))
+
+    if "Over Speeding" in user_inputs.get("Cause", ""):
+        active_factors.append(("Over Speeding", "red"))
+    if "Drunken" in user_inputs.get("Cause", ""):
+        active_factors.append(("Drunken Driving", "red"))
+    if user_inputs.get("Time of Day", "") == "Night":
+        active_factors.append(("Night-time", "orange"))
+    if user_inputs.get("Day Type", "") == "Weekend":
+        active_factors.append(("Weekend", "yellow"))
+    if user_inputs.get("Victim Vehicle Type", "") in ["Two Wheeler", "Pedestrian"]:
+        active_factors.append((user_inputs.get("Victim Vehicle Type", ""), "orange"))
+    if user_inputs.get("Road Geometry", "") in ["Curved Road", "Bridge", "Steep Grade"]:
+        active_factors.append((user_inputs.get("Road Geometry", ""), "yellow"))
 
     if active_factors:
         pills_html = ""
@@ -586,18 +413,10 @@ with col3:
     else:
         st.markdown("No major risk factors detected.")
 
-    st.markdown(f"""
-    <div style="margin-top:1rem;font-size:.82rem;color:#888;">
-        Override score: <strong>{override_score}</strong> / 17 &nbsp;|&nbsp;
-        Model pred: <strong>{severity_map[int(np.argmax(probs))]}</strong>
-    </div>
-    """, unsafe_allow_html=True)
-
-
 # ─────────────────────────────────────────────
-#  ROW 2: Why this prediction
+# WHY THIS PREDICTION
 # ─────────────────────────────────────────────
-st.markdown(f'<div class="section-header">Why this prediction?</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Why this prediction?</div>', unsafe_allow_html=True)
 
 if reasons:
     for text, color in [(r[1], r[0]) for r in reasons]:
@@ -605,11 +424,10 @@ if reasons:
 else:
     st.info("No significant risk factors identified for this scenario.")
 
-
 # ─────────────────────────────────────────────
-#  ROW 3: Recommendations
+# RECOMMENDATIONS
 # ─────────────────────────────────────────────
-st.markdown(f'<div class="section-header">Recommended Actions</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Recommended Actions</div>', unsafe_allow_html=True)
 
 rec_cols = st.columns(2)
 for i, (icon, title, detail) in enumerate(recs):
@@ -623,65 +441,63 @@ for i, (icon, title, detail) in enumerate(recs):
         </div>
         """, unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────
+# FEATURE IMPORTANCE
+# ─────────────────────────────────────────────
+st.markdown('<div class="section-header">Global Feature Importance</div>', unsafe_allow_html=True)
+
+importances = model.feature_importances_
+feat_imp = pd.Series(importances, index=feature_order).sort_values(ascending=True)
+
+fig1, ax1 = plt.subplots(figsize=(8, 4))
+feat_imp.plot(kind="barh", ax=ax1, color="#1e88e5")
+ax1.set_title("Feature Importance (Random Forest)")
+ax1.set_xlabel("Importance Score")
+ax1.spines[['top', 'right']].set_visible(False)
+plt.tight_layout()
+st.pyplot(fig1)
 
 # ─────────────────────────────────────────────
-#  ROW 4: Feature Impact Chart
+# INPUT ENCODING VIEW
 # ─────────────────────────────────────────────
-st.markdown(f'<div class="section-header">Feature Input Encoding</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Feature Input Encoding</div>', unsafe_allow_html=True)
 
-values = input_data.flatten()
-colors = []
-for i, v in enumerate(values):
-    fname = feature_names[i]
-    if v == 0:
-        colors.append("#b0bec5")
-    elif fname in ["Speed_Category", "Collision_Type", "Lighting"] and v >= 1:
-        colors.append("#e53935")
-    elif v >= 1:
-        colors.append("#fb8c00")
-    else:
-        colors.append("#b0bec5")
+values = input_df.iloc[0].values
+colors = ["#fb8c00" if v > 0 else "#b0bec5" for v in values]
 
-fig, ax = plt.subplots(figsize=(8, 3.5))
-bars = ax.barh(feature_names, values, color=colors, height=0.55, edgecolor="white")
-ax.set_xlabel("Encoded Input Value", fontsize=9, color="#666")
-ax.set_xlim(0, max(values) + 0.8)
-ax.tick_params(axis='y', labelsize=9)
-ax.tick_params(axis='x', labelsize=8)
-ax.spines[['top', 'right']].set_visible(False)
-ax.spines[['left', 'bottom']].set_color('#dde2ea')
-ax.set_facecolor("#fafbfc")
-fig.patch.set_facecolor("#fafbfc")
+fig2, ax2 = plt.subplots(figsize=(8, 4))
+bars = ax2.barh(feature_order, values, color=colors, height=0.55, edgecolor="white")
+ax2.set_xlabel("Encoded Input Value", fontsize=9, color="#666")
+ax2.tick_params(axis='y', labelsize=9)
+ax2.tick_params(axis='x', labelsize=8)
+ax2.spines[['top', 'right']].set_visible(False)
+ax2.spines[['left', 'bottom']].set_color('#dde2ea')
+ax2.set_facecolor("#fafbfc")
+fig2.patch.set_facecolor("#fafbfc")
 
 for bar, val in zip(bars, values):
-    if val > 0:
-        ax.text(val + 0.05, bar.get_y() + bar.get_height() / 2,
-                str(int(val)), va='center', fontsize=8, color="#444")
+    ax2.text(val + 0.03, bar.get_y() + bar.get_height()/2,
+             str(int(val)), va='center', fontsize=8, color="#444")
 
 legend_patches = [
-    mpatches.Patch(color="#e53935", label="High risk input"),
-    mpatches.Patch(color="#fb8c00", label="Moderate risk input"),
-    mpatches.Patch(color="#b0bec5", label="Low / baseline input"),
+    mpatches.Patch(color="#fb8c00", label="Selected encoded category"),
+    mpatches.Patch(color="#b0bec5", label="Baseline / low code"),
 ]
-ax.legend(handles=legend_patches, fontsize=8, loc="lower right",
-          framealpha=0.7, edgecolor="#dde2ea")
+ax2.legend(handles=legend_patches, fontsize=8, loc="lower right",
+           framealpha=0.7, edgecolor="#dde2ea")
 
 plt.tight_layout()
-st.pyplot(fig)
-
+st.pyplot(fig2)
 
 # ─────────────────────────────────────────────
-#  DEBUG EXPANDER
+# DEBUG EXPANDER
 # ─────────────────────────────────────────────
 with st.expander("🔬 Debug — Raw model output"):
-    st.markdown("**Raw XGBoost probabilities (before override):**")
-    for i, label in severity_map.items():
-        st.write(f"  {label}: `{probs[i]:.4f}` ({int(round(probs[i]*100))}%)")
-    st.markdown("**Display probabilities (shown in UI):**")
-    for i, label in severity_map.items():
-        st.write(f"  {label}: `{display_probs[i]:.4f}` ({int(round(display_probs[i]*100))}%)")
-    st.markdown(f"**Override applied:** `{override_applied}`")
-    st.markdown(f"**Override score:** `{override_score}` / 17")
-    st.markdown(f"**Model's raw prediction:** `{severity_map[int(np.argmax(probs))]}`")
-    st.markdown(f"**Final prediction (after override):** `{result}`")
-    st.markdown(f"**Input vector:** `{input_data.flatten().tolist()}`")
+    st.markdown("**Encoded input row:**")
+    st.write(input_df)
+
+    st.markdown("**Raw probabilities:**")
+    for i in range(len(probs)):
+        st.write(f"{severity_labels[i]}: `{probs[i]:.4f}` ({int(round(probs[i]*100))}%)")
+
+    st.markdown(f"**Final prediction:** `{result}`")
