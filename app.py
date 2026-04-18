@@ -105,8 +105,8 @@ def load_artifacts():
 model, encoders, metadata = load_artifacts()
 
 feature_order   = metadata["feature_order"]
-severity_labels = metadata["severity_labels"]
-display_labels  = metadata["display_labels"]
+severity_labels = metadata["severity_labels"]   # list, e.g. ["No Injury","Simple Injuries","Grievous Injuries","Fatal"]
+display_labels  = metadata["display_labels"]    # dict raw_col -> human label
 
 severity_style = {
     "Fatal":              ("card-fatal",    "fatal-title",    "#e53935"),
@@ -149,9 +149,9 @@ predict_btn = st.sidebar.button("🚀 Predict Severity", use_container_width=Tru
 if not predict_btn:
     c1, c2, c3 = st.columns(3)
     cards = [
-        ("🗂️", "Real Dataset", "Trained on official NH-163 corridor accident records with engineered features."),
-        ("🌲", "Random Forest", "Ensemble of decision trees with calibrated severity confidence outputs."),
-        ("🧠", "Explainable AI", "Every prediction includes input-specific reasons and actionable safety recommendations."),
+        ("🗂️", "Real Dataset",    "Trained on official NH-163 corridor accident records with engineered features."),
+        ("🌲", "Random Forest",   "Ensemble of decision trees with calibrated severity confidence outputs."),
+        ("🧠", "Explainable AI",  "Every prediction includes input-specific reasons and actionable safety recommendations."),
     ]
     for col, (icon, title, body) in zip([c1, c2, c3], cards):
         with col:
@@ -172,15 +172,29 @@ if not predict_btn:
 encoded_row = []
 for col in feature_order:
     encoded_val = encoders[col].transform([user_inputs[col]])[0]
-    encoded_row.append(encoded_val)
+    encoded_row.append(int(encoded_val))
 
 input_df = pd.DataFrame([encoded_row], columns=feature_order)
 pred     = int(model.predict(input_df)[0])
-probs    = model.predict_proba(input_df)[0]
-result   = severity_labels[pred]
+probs    = model.predict_proba(input_df)[0]   # numpy array, length = number of classes
 
-risk_weights = {0: 0.05, 1: 0.35, 2: 0.70, 3: 1.00}
-risk_percent  = int(sum(probs[i] * risk_weights[i] for i in range(len(probs))) * 100)
+# Ensure severity_labels length matches probs length
+n_classes = len(probs)
+# Pad or trim severity_labels defensively
+_severity_labels = list(severity_labels)
+while len(_severity_labels) < n_classes:
+    _severity_labels.append(f"Class {len(_severity_labels)}")
+_severity_labels = _severity_labels[:n_classes]
+
+result = _severity_labels[pred] if pred < len(_severity_labels) else f"Class {pred}"
+
+# Probability-weighted risk score
+risk_weights  = {0: 0.05, 1: 0.35, 2: 0.70, 3: 1.00}
+risk_percent  = int(sum(
+    probs[i] * risk_weights.get(i, 1.0) for i in range(n_classes)
+) * 100)
+risk_percent  = min(risk_percent, 100)
+
 risk_color = (
     "#e53935" if risk_percent >= 65 else
     "#fb8c00" if risk_percent >= 40 else
@@ -197,9 +211,6 @@ risk_label = (
 
 # ─────────────────────────────────────────────
 #  ROBUST KEY LOOKUP
-#  user_inputs is keyed by raw feature_order names.
-#  We normalise to find matching keys regardless of
-#  spaces vs underscores vs case differences.
 # ─────────────────────────────────────────────
 _norm_map = {k.lower().replace(" ", "").replace("_", ""): k for k in user_inputs}
 
@@ -222,7 +233,7 @@ accident_type      = inp_val("Type of Accident", "TypeofAccident", "type_of_acci
 
 
 # ─────────────────────────────────────────────
-#  ACTIVE FACTORS (for scenario summary)
+#  ACTIVE FACTORS
 # ─────────────────────────────────────────────
 active_factors = []
 if cause and ("over speeding" in cause.lower() or "speeding" in cause.lower()):
@@ -418,13 +429,16 @@ recs = build_recommendations()
 # ─────────────────────────────────────────────
 #  ROW 1: Prediction + Confidence + Summary
 # ─────────────────────────────────────────────
-card_cls, title_cls, bar_color = severity_style[result]
+card_cls, title_cls, bar_color = severity_style.get(
+    result,
+    ("card-property", "property-title", "#1e88e5")
+)
 col1, col2, col3 = st.columns([1.6, 1.2, 1.2])
 
 with col1:
     st.markdown(f"""
     <div class="severity-card {card_cls}">
-        <p class="severity-title {title_cls}">{severity_icon[result]}&nbsp; {result}</p>
+        <p class="severity-title {title_cls}">{severity_icon.get(result, "⚪")}&nbsp; {result}</p>
         <p class="severity-sub">Predicted accident severity outcome</p>
     </div>""", unsafe_allow_html=True)
 
@@ -441,10 +455,10 @@ with col1:
 
 with col2:
     st.markdown('<div class="section-header">Severity Confidence</div>', unsafe_allow_html=True)
-    for i in range(len(probs)):
-        label   = severity_labels[i]
-        pct     = int(round(probs[i] * 100))
-        color   = severity_style[label][2]
+    for i in range(n_classes):
+        label   = _severity_labels[i]
+        pct     = int(round(float(probs[i]) * 100))
+        color   = severity_style.get(label, ("", "", "#888"))[2]
         is_pred = (i == pred)
         weight  = "700" if is_pred else "400"
         indicator = " ◀ predicted" if is_pred else ""
@@ -468,10 +482,10 @@ with col3:
             for label, color in active_factors
         )
         st.markdown(pills_html, unsafe_allow_html=True)
+        count = len(active_factors)
         st.markdown(
             f"<div style='margin-top:.8rem;font-size:.82rem;color:#888;'>"
-            f"{len(active_factors)} risk factor{'s' if len(active_factors) != 1 else ''} "
-            f"identified in this scenario.</div>",
+            f"{count} risk factor{'s' if count != 1 else ''} identified in this scenario.</div>",
             unsafe_allow_html=True
         )
     else:
@@ -528,19 +542,25 @@ st.markdown('<div class="section-header">Global Feature Importance</div>', unsaf
 
 importances = model.feature_importances_
 feat_labels = [display_labels.get(col, col) for col in feature_order]
-feat_series = pd.Series(importances, index=feat_labels).sort_values(ascending=True)
 
-n = len(feat_series)
+# Ensure lengths match
+min_len     = min(len(importances), len(feat_labels))
+importances = importances[:min_len]
+feat_labels = feat_labels[:min_len]
+
+feat_series = pd.Series(importances, index=feat_labels).sort_values(ascending=True)
+n_fi        = len(feat_series)
+
 bar_colors_fi = []
-for rank in range(n):
-    if rank >= n - 3:
+for rank in range(n_fi):
+    if rank >= n_fi - 3:
         bar_colors_fi.append("#e53935")
-    elif rank >= n - 6:
+    elif rank >= n_fi - 6:
         bar_colors_fi.append("#fb8c00")
     else:
         bar_colors_fi.append("#90a4ae")
 
-fig1, ax1 = plt.subplots(figsize=(8, max(3.5, n * 0.44)))
+fig1, ax1 = plt.subplots(figsize=(8, max(3.5, n_fi * 0.44)))
 bars_fi = ax1.barh(
     feat_series.index, feat_series.values,
     color=bar_colors_fi, height=0.62, edgecolor="white", linewidth=0.5
@@ -557,16 +577,14 @@ ax1.tick_params(axis="y", labelsize=9, colors="#333")
 ax1.tick_params(axis="x", labelsize=8, colors="#666")
 ax1.set_facecolor("#fafbfc")
 fig1.patch.set_facecolor("#fafbfc")
-
-legend_fi = [
+ax1.legend(handles=[
     mpatches.Patch(color="#e53935", label="Top 3 — highest influence"),
     mpatches.Patch(color="#fb8c00", label="Mid-tier features"),
     mpatches.Patch(color="#90a4ae", label="Lower influence"),
-]
-ax1.legend(handles=legend_fi, fontsize=8, loc="lower right",
-           framealpha=0.85, edgecolor="#dde3ed")
+], fontsize=8, loc="lower right", framealpha=0.85, edgecolor="#dde3ed")
 plt.tight_layout()
 st.pyplot(fig1)
+
 st.markdown(
     "<div style='font-size:.82rem;color:#888;margin-top:-4px;'>"
     "Importance scores represent mean decrease in node impurity across all trees. "
@@ -580,15 +598,21 @@ st.markdown(
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">Input Feature Encoding</div>', unsafe_allow_html=True)
 
-values     = input_df.iloc[0].values
+values     = [int(v) for v in input_df.iloc[0].values]
 enc_labels = [display_labels.get(col, col) for col in feature_order]
+
+# Ensure lengths match
+min_enc    = min(len(values), len(enc_labels))
+values     = values[:min_enc]
+enc_labels = enc_labels[:min_enc]
+
 enc_colors = ["#1e88e5" if v > 0 else "#b0bec5" for v in values]
 
-fig2, ax2 = plt.subplots(figsize=(8, max(3.5, len(feature_order) * 0.44)))
+fig2, ax2 = plt.subplots(figsize=(8, max(3.5, min_enc * 0.44)))
 bars2 = ax2.barh(enc_labels, values, color=enc_colors, height=0.58, edgecolor="white")
 for bar, val in zip(bars2, values):
     ax2.text(val + 0.05, bar.get_y() + bar.get_height() / 2,
-             str(int(val)), va="center", ha="left", fontsize=8, color="#444")
+             str(val), va="center", ha="left", fontsize=8, color="#444")
 
 ax2.set_xlabel("Label-encoded category index", fontsize=9, color="#666")
 ax2.set_title("Current Input — Encoded Feature Values", fontsize=10, color="#1a1a2e", pad=10)
@@ -607,26 +631,35 @@ st.pyplot(fig2)
 
 
 # ─────────────────────────────────────────────
-#  DEBUG EXPANDER
+#  DEBUG EXPANDER  (fixed — no DataFrame length mismatch)
 # ─────────────────────────────────────────────
 with st.expander("🔬 Debug — Raw model output"):
     st.markdown("**Encoded input row:**")
     st.dataframe(input_df, use_container_width=True)
 
     st.markdown("**Raw class probabilities:**")
-    prob_df = pd.DataFrame({
-        "Severity Class": severity_labels,
-        "Probability":    [f"{p:.4f}" for p in probs],
-        "Percentage":     [f"{int(round(p*100))}%" for p in probs],
-    })
-    st.dataframe(prob_df, use_container_width=True)
+    # Build row-by-row to avoid any length mismatch
+    for i in range(n_classes):
+        lbl = _severity_labels[i] if i < len(_severity_labels) else f"Class {i}"
+        pct = int(round(float(probs[i]) * 100))
+        st.write(f"- **{lbl}**: `{float(probs[i]):.4f}` ({pct}%)")
 
     st.markdown("**Resolved input values (after key normalisation):**")
-    st.json({
-        "cause": cause, "time_of_day": time_of_day, "day_type": day_type,
-        "road_geometry": road_geometry, "victim_vehicle": victim_vehicle,
-        "offender_vehicle": offender_vehicle, "accident_type": accident_type,
-    })
+    try:
+        st.json({
+            "cause":              cause,
+            "time_of_day":        time_of_day,
+            "day_type":           day_type,
+            "road_geometry":      road_geometry,
+            "victim_vehicle":     victim_vehicle,
+            "offender_vehicle":   offender_vehicle,
+            "accident_type":      accident_type,
+            "victim_manoeuvre":   victim_manoeuvre,
+            "offender_manoeuvre": offender_manoeuvre,
+        })
+    except Exception:
+        st.write("Could not serialise resolved values.")
+
     st.markdown(f"**Final prediction:** `{result}` &nbsp;|&nbsp; **Risk score:** `{risk_percent}%`")
 
 
@@ -635,7 +668,7 @@ with st.expander("🔬 Debug — Raw model output"):
 # ─────────────────────────────────────────────
 with st.expander("📋 Panel Demo — Suggested Input Scenarios"):
     st.markdown("""
-**Use these combinations during your presentation to demonstrate all severity classes and model behaviour.**
+**Use these combinations during your presentation to demonstrate all severity classes.**
 
 ---
 **Scenario 1 — Fatal (worst case)**
@@ -643,7 +676,7 @@ Cause: *Over Speeding* · Victim: *Two Wheeler* · Offender: *Truck/Lorry*
 Accident type: *Head on* · Geometry: *Curved Road* · Time: *Night* · Day: *Weekend*
 Victim manoeuvre: *Going Straight* · Offender manoeuvre: *Over Taking*
 
-*Shows: overspeeding + vulnerable road user + heavy vehicle + night/weekend = Fatal + Very High risk.*
+*Overspeeding + unprotected road user + heavy vehicle + night/weekend = Fatal + Very High risk.*
 
 ---
 **Scenario 2 — Grievous Injuries**
@@ -651,7 +684,7 @@ Cause: *Drunken Driving* · Victim: *Two Wheeler* · Offender: *Car*
 Accident type: *Front side* · Geometry: *T - Junction* · Time: *Night* · Day: *Weekday*
 Victim manoeuvre: *Crossing* · Offender manoeuvre: *Going Straight*
 
-*Shows: impaired driving + junction conflict + unprotected road user = Grievous.*
+*Impaired driving + junction conflict + unprotected road user = Grievous Injuries.*
 
 ---
 **Scenario 3 — Simple Injuries (moderate)**
@@ -659,7 +692,7 @@ Cause: *Loss of Control* · Victim: *Car* · Offender: *Car*
 Accident type: *Front back* · Geometry: *Straight Road* · Time: *Afternoon* · Day: *Weekday*
 Victim manoeuvre: *Going Straight* · Offender manoeuvre: *Going Straight*
 
-*Shows: model is not always predicting extreme outcomes — moderate rear-end gives Simple Injuries.*
+*Moderate rear-end scenario — model is not always predicting extreme outcomes.*
 
 ---
 **Scenario 4 — No Injury (baseline)**
@@ -667,13 +700,13 @@ Cause: *Bad Road Condition* · Victim: *Car* · Offender: *Car*
 Accident type: *Front back* · Geometry: *Straight Road* · Time: *Morning* · Day: *Weekday*
 Victim manoeuvre: *Going Straight* · Offender manoeuvre: *Stationary*
 
-*Shows: baseline low-risk condition gives No Injury + Low risk score.*
+*Baseline low-risk condition gives No Injury + Low risk score.*
 
 ---
-**Scenario 5 — Feature importance demonstration**
+**Scenario 5 — Feature importance live demo**
 Start with Scenario 1 (Fatal). Change only Cause from *Over Speeding* to *Bad Road Condition*.
-Observe severity drop — this shows Cause is among the top-ranked features.
+Observe severity drop — this demonstrates that Cause is among the top-ranked features in the model.
 
 ---
-*Note: Exact predictions depend on your trained model. Run these in sequence to walk the panel through all four severity classes and the feature importance chart.*
+*Run these in sequence to walk the panel through all four severity classes and the feature importance chart.*
     """)
