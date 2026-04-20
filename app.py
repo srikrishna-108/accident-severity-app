@@ -133,7 +133,7 @@ _sev_cfg = {
 # ─────────────────────────────────────────────────────────────────────────────
 #  PAGE HEADER
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown("# 🚧 Accident Severity Predictor")
+st.markdown("# Accident Severity Predictor")
 st.markdown(
     "**Smart Road Risk & Severity Analysis System**  —  "
     "Tuned Random Forest · NH-163 Warangal–Hyderabad · "
@@ -156,7 +156,7 @@ for col in feature_order:
     user_inputs[col] = st.sidebar.selectbox(label, options, key=col)
 
 st.sidebar.markdown("---")
-predict_btn = st.sidebar.button("🚀 Predict Severity", use_container_width=True)
+predict_btn = st.sidebar.button(" Predict Severity", use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,9 +165,9 @@ predict_btn = st.sidebar.button("🚀 Predict Severity", use_container_width=Tru
 if not predict_btn:
     c1, c2, c3 = st.columns(3)
     tiles = [
-        ("🗂️", "Real Dataset",   "Official NH-163 records from Telangana State Police — 2024."),
-        ("🌲", "Random Forest",  "Tuned ensemble with balanced class weighting for imbalanced severity data."),
-        ("🧠", "Explainable AI", "Every prediction includes feature-level reasons and safety recommendations."),
+        ("Real Dataset",   "Official NH-163 records from Telangana State Police — 2024."),
+        ("Random Forest",  "Tuned ensemble with balanced class weighting for imbalanced severity data."),
+        ("Explainable AI", "Every prediction includes feature-level reasons and safety recommendations."),
     ]
     for col_ui, (icon, title, desc) in zip([c1, c2, c3], tiles):
         with col_ui:
@@ -179,7 +179,7 @@ if not predict_btn:
                 <div style="font-size:.85rem;color:#666;line-height:1.55;">{desc}</div>
             </div>""", unsafe_allow_html=True)
     st.markdown("---")
-    st.info("👈  Configure road conditions in the sidebar, then click **Predict Severity**.")
+    st.info("Configure road conditions in the sidebar, then click **Predict Severity**.")
     st.stop()
 
 
@@ -433,77 +433,77 @@ def build_recommendations():
     c = cause.lower()
 
     if result == "Fatal":
-        r.append(("🚨", "Immediate corridor intervention",
+        r.append(("Immediate corridor intervention",
             "This scenario indicates extreme fatality risk. Temporary speed restrictions, "
             "enhanced patrol presence, and emergency signage deployment are recommended."))
 
     if "over speeding" in c or "speeding" in c:
-        r.append(("📷", "Speed enforcement infrastructure",
+        r.append(("Speed enforcement infrastructure",
             "Deploy average-speed cameras at 2 km intervals on open highway segments. "
             "A 10 km/h reduction in mean speed reduces fatal crashes by ~34% (NHAI data)."))
 
     if "drunken" in c or "drunk" in c:
-        r.append(("🍺", "Impaired driving enforcement",
+        r.append(("Impaired driving enforcement",
             "Increase breathalyzer checkpoints during night and weekend windows. "
             "Sustained enforcement — not one-off campaigns — is significantly more effective."))
 
     if "driver fatigue" in c or "fatigue" in c:
-        r.append(("😴", "Driver fatigue countermeasures",
+        r.append(("Driver fatigue countermeasures",
             "Install rumble strips on highway shoulders, place mandatory rest area signs, "
             "and run awareness campaigns for long-haul drivers on this corridor."))
 
     if "poor visibility" in c or "bad road" in c:
-        r.append(("🔦", "Visibility and road surface improvement",
+        r.append(("Visibility and road surface improvement",
             "Upgrade lane markings with high-retroreflectivity paint. Address surface defects "
             "reported at black spots. Install advance fog warning signs on problem segments."))
 
     if victim_vehicle in ["Two Wheeler", "Pedestrian"]:
-        r.append(("🏍", "Vulnerable road user protection",
+        r.append(("Vulnerable road user protection",
             "Construct dedicated footpaths and two-wheeler lanes. Install pedestrian refuges, "
             "improve zebra crossing visibility, and mandate ABS on two-wheelers above 125cc."))
 
     if offender_vehicle == "Heavy Vehicle":
-        r.append(("🛻", "Heavy vehicle management",
+        r.append(("Heavy vehicle management",
             "Enforce lane discipline for trucks and HGVs. Mandate speed limiters and introduce "
             "time-based restrictions near signalised junctions and school zones."))
 
     if road_geometry in ["Curved Road", "Bridge", "Steep Grade"]:
-        r.append(("⚠️", "Geometric safety treatment",
+        r.append(("Geometric safety treatment",
             "Install advance warning signs 300 m before hazards, chevron delineators on curves, "
             "crash barriers on exposed edges, and skid-resistant pavement at critical locations."))
     elif road_geometry in ["T - Junction", "Y - Junction", "Four Arm Junction", "Staggered Junction"]:
-        r.append(("🚦", "Junction safety upgrade",
+        r.append(("Junction safety upgrade",
             "Improve channelisation with retroreflective delineators. Evaluate signal timing "
             "optimisation, grade separation for high-volume movements, and pedestrian phases."))
 
     if accident_type == "Head on":
-        r.append(("🛡", "Head-on collision prevention",
+        r.append(("Head-on collision prevention",
             "Install flexible delineator posts as median protection. Evaluate wire rope or "
             "concrete median barriers on high-volume sections with head-on crash history."))
 
     if accident_type in ["Vehicle Overturn", "Run off the road"]:
-        r.append(("🛡", "Off-road and rollover prevention",
+        r.append(("Off-road and rollover prevention",
             "Install longitudinal rumble strips at edge lines and earthen shoulders. "
             "Evaluate guardrail placement on steep or curved segments with drop-off risk."))
 
     if "night" in time_of_day.lower():
-        r.append(("💡", "Night-time visibility upgrade",
+        r.append(("Night-time visibility upgrade",
             "Upgrade corridor lighting to consistent LED luminance. Install retroreflective lane "
             "markings and raised pavement markers at bridges, curves, and junction approaches."))
 
     if offender_manoeuvre in ["Over Taking", "Wrong side driving"]:
-        r.append(("🚫", "Overtaking zone management",
+        r.append(("Overtaking zone management",
             "Mark no-overtaking zones with double yellow lines and delineators. "
             "Consider average-speed enforcement specifically targeting overtaking segments."))
 
     if "weekend" in day_type.lower():
-        r.append(("📅", "Weekend traffic management",
+        r.append(("Weekend traffic management",
             "Deploy additional traffic personnel on Friday and Saturday nights. Use variable "
             "message signs for weekend-specific risk campaigns — fatigue and impaired driving."))
 
     # always include speed management
     if not any("speed" in t.lower() for _, t, _ in r):
-        r.append(("📷", "Speed management",
+        r.append(("Speed management",
             "Average-speed camera enforcement at 2 km intervals is the single most cost-effective "
             "fatal crash reduction measure on NH corridors in India."))
 
@@ -576,7 +576,7 @@ with col3:
         st.markdown("""
         <div style="background:#e8f5e9;border:1px solid #2e7d32;border-radius:12px;
                     padding:.85rem 1rem;font-size:.88rem;color:#1b5e20;line-height:1.5;">
-            ✅ No major risk factors detected. This scenario is associated with
+            No major risk factors detected. This scenario is associated with
             lower severity outcomes in the NH-163 training data.
         </div>""", unsafe_allow_html=True)
 
@@ -704,7 +704,7 @@ plt.close(fig2)
 # ─────────────────────────────────────────────────────────────────────────────
 #  DEBUG EXPANDER
 # ─────────────────────────────────────────────────────────────────────────────
-with st.expander("🔬 Debug — Raw model output"):
+with st.expander("Debug — Raw model output"):
     st.markdown("**Encoded input (9 features):**")
     st.dataframe(input_df, use_container_width=True)
 
@@ -733,7 +733,7 @@ with st.expander("🔬 Debug — Raw model output"):
 # ─────────────────────────────────────────────────────────────────────────────
 #  PANEL DEMO GUIDE
 # ─────────────────────────────────────────────────────────────────────────────
-with st.expander("📋 Panel Demo — Suggested Test Scenarios"):
+with st.expander("Panel Demo — Suggested Test Scenarios"):
     st.markdown("""
 **Run these in order to demonstrate all four severity classes.**
 
